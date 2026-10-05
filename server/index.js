@@ -19,6 +19,8 @@ const __dirname=path.dirname(__filename);
 dotenv.config({path:path.resolve(__dirname,'..','.env')});
 dns.setServers(['8.8.8.8','1.1.1.1']);
 const root=path.resolve(__dirname,'..');
+const distDir=path.join(root,'dist');
+const frontendIndex=path.join(distDir,'index.html');
 const dataFile=path.join(__dirname,'data','db.json');
 const uploadDir=path.join(__dirname,'uploads');
 fs.mkdirSync(uploadDir,{recursive:true});
@@ -65,7 +67,8 @@ app.post('/api/admin/logo',admin,upload.single('logo'),(req,res)=>{if(!req.file)
 app.patch('/api/admin/reports/:id',admin,(req,res)=>{const db=load();const r=db.reports.find(x=>x.id===req.params.id);if(!r)return res.status(404).json({error:'Report not found'});if(!['open','reviewed','resolved'].includes(req.body.status))return res.status(400).json({error:'Report status must be open, reviewed, or resolved'});const previousStatus=r.status;r.status=req.body.status;if(previousStatus!==r.status)recordAdminEvent(db,req,'report_status_changed',`${r.id}: ${previousStatus} to ${r.status}`);save(db);res.json(r);});
 app.post('/api/ai/chat',auth,async(req,res)=>{const {message,context=''}=req.body||{};if(!message?.trim())return res.status(400).json({error:'Message required'});const risk=riskText(message);if(risk.level==='critical')return res.status(422).json({error:'Request blocked by ZERA Trust & Safety'});if(!process.env.OPENAI_API_KEY)return res.json({reply:'ZERA AI is connected to the ZERA HUB interface, but its live AI key has not been configured yet. Add OPENAI_API_KEY to .env, restart the server, and I can answer technical questions, teach concepts, write code, review code and debug errors.'});try{const r=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${process.env.OPENAI_API_KEY}`},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-5-mini',instructions:'You are ZERA AI, the developer mentor and coding assistant inside ZERA HUB. Be accurate, practical, beginner-friendly when needed, and strong at frontend, backend, databases, cybersecurity fundamentals, debugging, architecture, testing and deployment. Never claim to have executed code you did not execute. Protect secrets and credentials.',input:`User message:\n${message}\n\nContext:\n${context}`})});if(!r.ok)throw new Error('AI provider error');const data=await r.json();const text=data.output_text||data.output?.flatMap(x=>x.content||[]).map(x=>x.text||'').join('')||'I could not produce a response right now.';res.json({reply:text});}catch(e){res.status(502).json({error:'ZERA AI is temporarily unavailable. Check the server API configuration.'});}});
 io.on('connection',(socket)=>{socket.on('identify',(userId)=>{if(userId)socket.join(userId);});});
-app.get('*',(req,res,next)=>{if(req.path.startsWith('/api/')||req.path.startsWith('/uploads/'))return next();res.sendFile(path.join(root,'dist','index.html'));});
+app.use(express.static(distDir));
+app.get('*',(req,res,next)=>{if(req.path.startsWith('/api/')||req.path.startsWith('/uploads/')||path.extname(req.path))return next();res.sendFile(frontendIndex,(error)=>{if(error)next(error);});});
 async function startServer(){
   try{
     await connectDatabase();

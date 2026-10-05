@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: zera-hub
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: node server/index.js
