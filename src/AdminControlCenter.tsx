@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { Fragment } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -27,8 +28,9 @@ import {
   X,
 } from 'lucide-react';
 import './admin.css';
+import { BrandMark } from './BrandMark';
 
-const API = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://zera-hub-api.onrender.com' : 'http://localhost:4000');
+const API = (import.meta.env.PROD ? 'https://zera-hub-api.onrender.com' : (import.meta.env.VITE_API_URL || 'http://localhost:4000')).replace(/\/+$/, '');
 const ADMIN_EMAIL = 'zerahub@outlook.com';
 
 type AdminUser = {
@@ -41,6 +43,8 @@ type AdminUser = {
   skills?: string[];
   avatar?: string;
   status: string;
+  moderationState?: string;
+  restrictedUntil?: string | null;
   verified?: boolean;
   createdAt?: string;
 };
@@ -49,6 +53,7 @@ type AdminData = {
   users: AdminUser[];
   reports: any[];
   moderationActions: any[];
+  projects: any[];
   siteConfig: {
     brandName: string;
     tagline: string;
@@ -63,7 +68,14 @@ type AdminData = {
     activeUsers: number;
     suspendedUsers: number;
     pendingReports: number;
+    projects: number;
+    jobs: number;
+    applications: number;
+    comments: number;
   };
+  jobs: any[];
+  applications: any[];
+  posts: any[];
 };
 
 type SecurityData = { loginActivity: any[]; auditLogs: any[] };
@@ -93,10 +105,15 @@ const sections: { label: Section; icon: typeof LayoutDashboard }[] = [
 async function request<T>(path: string, token: string | null, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
+  if (path === '/api/admin/overview' && !token) throw new Error('Admin session is missing. Sign in to the Admin Control Center.');
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const response = await fetch(`${API}${path}`, { ...options, headers });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail = data && typeof data.error === 'string' ? data.error : response.statusText;
+    throw new Error(`Admin API request failed (${response.status})${detail ? `: ${detail}` : ''}`);
+  }
+  if (data === null) throw new Error('The admin API returned an invalid response. Confirm the Render backend route is available.');
   return data as T;
 }
 
@@ -116,6 +133,7 @@ export default function AdminControlCenter() {
   const [search, setSearch] = useState('');
   const [userFilter, setUserFilter] = useState<'all' | 'developer' | 'hire'>('all');
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
+  const [userModerationStatus, setUserModerationStatus] = useState('suspended');
   const [loading, setLoading] = useState(Boolean(token));
   const [busy, setBusy] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -130,7 +148,23 @@ export default function AdminControlCenter() {
 
   useEffect(() => {
     document.body.classList.add('admin-page');
-    return () => document.body.classList.remove('admin-page');
+    const previousTitle = document.title;
+    document.title = 'Admin Control Center · ZERA HUB';
+    let robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
+    const createdRobots = !robots;
+    if (!robots) {
+      robots = document.createElement('meta');
+      robots.name = 'robots';
+      document.head.append(robots);
+    }
+    const previousRobots = robots.content;
+    robots.content = 'noindex, nofollow, noarchive';
+    return () => {
+      document.body.classList.remove('admin-page');
+      document.title = previousTitle;
+      if (createdRobots) robots?.remove();
+      else if (robots) robots.content = previousRobots;
+    };
   }, []);
 
   useEffect(() => {
@@ -143,13 +177,20 @@ export default function AdminControlCenter() {
     setError('');
     request<AdminData>('/api/admin/overview', token)
       .then((response) => {
+        if (!response || !Array.isArray(response.users) || !Array.isArray(response.reports) ||
+            !Array.isArray(response.moderationActions) || !Array.isArray(response.jobs) ||
+            !Array.isArray(response.applications) || !Array.isArray(response.posts) ||
+            !Array.isArray(response.projects) || !response.stats || !response.siteConfig) {
+          throw new Error('The secured admin API returned an unexpected dashboard data structure.');
+        }
         if (!cancelled) setData(response);
       })
       .catch((cause: Error) => {
         if (cancelled) return;
         setError(cause.message);
         setData(null);
-        if (/authentication|required|session/i.test(cause.message)) {
+        if (cause.message.includes('(401)') || cause.message.includes('(403)') ||
+            /authentication|required|session|admin access/i.test(cause.message)) {
           localStorage.removeItem('zera_admin');
           setToken(null);
         }
@@ -213,16 +254,18 @@ export default function AdminControlCenter() {
     }
   };
 
-  const updateUserStatus = async (user: AdminUser) => {
+  const updateUserStatus = async (user: AdminUser, status: string) => {
     if (!token) return;
+    const reason = window.prompt(`Enter the reason to set this account to ${status}.`);
+    if (!reason?.trim()) return;
     setBusy(true);
     setError('');
-    const status = user.status === 'active' ? 'suspended' : 'active';
     try {
-      await request(`/api/admin/users/${user.id}`, token, { method: 'PATCH', body: JSON.stringify({ status }) });
+      await request(`/api/admin/users/${user.id}`, token, { method: 'PATCH', body: JSON.stringify({ status, reason }) });
       await loadOverview(token);
       setNotice(`${user.name} is now ${status}.`);
-      setSelectedUser(null);
+      setSelectedUser({ ...user, status: ['warning','review_required'].includes(status) ? 'active' : status, moderationState: ['warning','review_required'].includes(status) ? status : '' });
+      setUserModerationStatus(status === 'active' ? 'active' : status);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not update this account.');
     } finally {
@@ -232,10 +275,12 @@ export default function AdminControlCenter() {
 
   const updateReport = async (reportId: string, status: string) => {
     if (!token) return;
+    const reason = window.prompt(`Enter the reason for marking this report ${status}.`);
+    if (!reason?.trim()) return;
     setBusy(true);
     setError('');
     try {
-      await request(`/api/admin/reports/${reportId}`, token, { method: 'PATCH', body: JSON.stringify({ status }) });
+      await request(`/api/admin/reports/${reportId}`, token, { method: 'PATCH', body: JSON.stringify({ status, reason }) });
       await loadOverview(token);
       setNotice('Report status updated.');
     } catch (cause) {
@@ -243,6 +288,23 @@ export default function AdminControlCenter() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const updateRecord = async (type: string, id: string, status: string) => {
+    if (!token) return;
+    const reason = window.prompt(`Enter the reason for setting this ${type} to ${status}.`);
+    if (!reason?.trim()) return;
+    setBusy(true);
+    setError('');
+    try {
+      await request(`/api/admin/records/${type}/${encodeURIComponent(id)}`, token, {
+        method: 'PATCH', body: JSON.stringify({ status, reason }),
+      });
+      await loadOverview(token);
+      setNotice(`${type} moderation status updated.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : `Could not update this ${type}.`);
+    } finally { setBusy(false); }
   };
 
   const saveWebsite = async (event: FormEvent<HTMLFormElement>) => {
@@ -264,6 +326,30 @@ export default function AdminControlCenter() {
     }
   };
 
+  const uploadLogo = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !token) return;
+    setBusy(true);
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('logo', file);
+      const response = await request<{ logoUrl?: string } | { siteConfig?: { logoUrl?: string } }>('/api/admin/logo', token, {
+        method: 'POST',
+        body: formData,
+      });
+      const logoUrl = response.logoUrl || response.siteConfig?.logoUrl || '';
+      setData((current) => current ? { ...current, siteConfig: { ...current.siteConfig, logoUrl } } : current);
+      await loadOverview(token);
+      setNotice('Logo uploaded successfully.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not upload the logo.');
+    } finally {
+      setBusy(false);
+      event.target.value = '';
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem('zera_admin');
     if (localStorage.getItem('zera_token') === token) localStorage.removeItem('zera_token');
@@ -279,7 +365,7 @@ export default function AdminControlCenter() {
       <main className="admin-login-screen">
         <div className="admin-login-glow" />
         <form className="admin-login-card" onSubmit={login}>
-          <div className="admin-brand-mark"><Sparkles size={22} /></div>
+          <div className="admin-brand-mark"><BrandMark site={null}/></div>
           <span className="admin-eyebrow">ZERA HUB · SECURE ACCESS</span>
           <h1>Admin Control Center</h1>
           <p>Sign in with your authorized administrator credentials.</p>
@@ -302,8 +388,8 @@ export default function AdminControlCenter() {
     { label: 'Hirers', value: data.stats.hirers, icon: BriefcaseBusiness, tone: 'blue' },
     { label: 'Active users', value: data.stats.activeUsers ?? data.users.filter((user) => user.status === 'active').length, icon: CheckCircle2, tone: 'green' },
     { label: 'Suspended users', value: data.stats.suspendedUsers ?? data.users.filter((user) => user.status === 'suspended').length, icon: Ban, tone: 'rose' },
-    { label: 'Projects', value: '—', icon: FolderKanban, tone: 'amber', note: 'Awaiting backend integration' },
-    { label: 'Jobs', value: '—', icon: BriefcaseBusiness, tone: 'blue', note: 'Awaiting backend integration' },
+    { label: 'Projects', value: data.stats.projects, icon: FolderKanban, tone: 'amber' },
+    { label: 'Jobs', value: data.stats.jobs, icon: BriefcaseBusiness, tone: 'blue' },
     { label: 'Pending reports', value: data.stats.pendingReports ?? data.reports.filter((report) => report.status === 'open').length, icon: Flag, tone: 'rose' },
   ] : [];
 
@@ -326,11 +412,11 @@ export default function AdminControlCenter() {
       </div>
       {filteredUsers.length ? <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Member</th><th>Account type</th><th>Verification</th><th>Status</th><th /></tr></thead><tbody>
         {filteredUsers.map((user) => <tr key={user.id}>
-          <td><button className="admin-member-link" onClick={() => setSelectedUser(user)}><span className="admin-avatar">{user.avatar ? <img src={user.avatar.startsWith('http') ? user.avatar : `${API}${user.avatar}`} alt="" /> : (user.name || 'Z').slice(0, 1).toUpperCase()}</span><span><b>{user.name || 'Unnamed member'}</b><small>@{user.username}</small></span></button></td>
+          <td><button className="admin-member-link" onClick={() => { setSelectedUser(user); setUserModerationStatus(user.moderationState || user.status); }}><span className="admin-avatar">{user.avatar ? <img loading="lazy" src={user.avatar.startsWith('http') ? user.avatar : `${API}${user.avatar}`} alt="" /> : (user.name || 'Z').slice(0, 1).toUpperCase()}</span><span><b>{user.name || 'Unnamed member'}</b><small>@{user.username}</small></span></button></td>
           <td><span className="admin-type">{user.accountType === 'hire' ? 'Hirer' : 'Developer'}</span></td>
           <td>{user.verified ? <span className="admin-verified"><CheckCircle2 size={14} /> Verified</span> : <span className="admin-muted">Not verified</span>}</td>
-          <td><span className={`admin-status ${user.status}`}>{user.status}</span></td>
-          <td><button className="admin-small-button" onClick={() => setSelectedUser(user)}>View</button></td>
+          <td><span className={`admin-status ${user.moderationState || user.status}`}>{(user.moderationState || user.status).replace(/_/g,' ')}</span></td>
+          <td><button className="admin-small-button" onClick={() => { setSelectedUser(user); setUserModerationStatus(user.moderationState || user.status); }}>View</button></td>
         </tr>)}
       </tbody></table></div> : <div className="admin-empty"><Users size={22} /><b>No matching users</b><span>Adjust the search or account filter.</span></div>}
     </section>
@@ -343,7 +429,7 @@ export default function AdminControlCenter() {
         <div className="admin-report-icon"><Flag size={17} /></div>
         <div className="admin-report-main"><div className="admin-report-title"><b>{report.reason || report.type || 'User report'}</b><span className={`admin-status ${report.status || 'open'}`}>{report.status || 'open'}</span></div>
           <p>{report.details || 'No additional details were provided.'}</p>
-          <div className="admin-report-meta"><span>Reported user/content: {report.targetUserId || 'Not specified'}</span><span>Risk: {report.risk?.level || report.riskLevel || 'Not assessed'}</span><span>{formatDate(report.createdAt)}</span></div>
+          <div className="admin-report-meta"><span>Target: {report.targetType || 'user'} · {report.targetId || report.targetUserId || 'Not specified'}</span><span>Reporter: {report.reporterId || 'Not specified'}</span><span>Risk: {report.risk?.level || report.riskLevel || 'Not assessed'}</span><span>{formatDate(report.createdAt)}</span></div>
         </div>
         <label className="admin-report-action">Action status<select value={report.status || 'open'} disabled={busy} onChange={(event) => updateReport(report.id, event.target.value)}><option value="open">Open</option><option value="reviewed">Reviewed</option><option value="resolved">Resolved</option></select></label>
       </article>)}</div> : <div className="admin-empty"><Flag size={22} /><b>No reports have been submitted</b><span>New reports will appear here when available.</span></div>}
@@ -352,7 +438,7 @@ export default function AdminControlCenter() {
 
   const renderOverview = () => (
     <>
-      <div className="admin-metrics">{metricCards.map(({ label, value, icon: Icon, tone, note }) => <article className="admin-metric" key={label}><div className={`admin-metric-icon ${tone}`}><Icon size={18} /></div><span>{label}</span><b>{value}</b>{note && <small>{note}</small>}</article>)}</div>
+      <div className="admin-metrics">{metricCards.map(({ label, value, icon: Icon, tone }) => <article className="admin-metric" key={label}><div className={`admin-metric-icon ${tone}`}><Icon size={18} /></div><span>{label}</span><b>{value}</b></article>)}</div>
       <div className="admin-overview-grid">
         <section className="admin-content-card admin-overview-users"><div className="admin-card-heading"><div><span className="admin-eyebrow">LATEST ACCOUNTS</span><h2>Recently joined</h2></div><button className="admin-text-button" onClick={() => setActiveSection('Users')}>View users <ArrowRight size={14} /></button></div>
           {data?.users.slice(-5).reverse().length ? data.users.slice(-5).reverse().map((user) => <div className="admin-recent-user" key={user.id}><span className="admin-avatar">{(user.name || 'Z').slice(0, 1).toUpperCase()}</span><div><b>{user.name || 'Unnamed member'}</b><small>@{user.username} · {user.accountType === 'hire' ? 'Hirer' : 'Developer'}</small></div><span className={`admin-status ${user.status}`}>{user.status}</span></div>) : <div className="admin-empty"><Users size={20} /><b>No user accounts yet</b><span>Registered members will appear here.</span></div>}
@@ -371,7 +457,10 @@ export default function AdminControlCenter() {
     <form onSubmit={saveWebsite} className="admin-website-form">
       <label>Brand name<input value={data.siteConfig.brandName || ''} onChange={(event) => editSiteConfig('brandName', event.target.value)} /></label>
       <label>Tagline<input value={data.siteConfig.tagline || ''} onChange={(event) => editSiteConfig('tagline', event.target.value)} /></label>
-      <label>Logo URL<input value={data.siteConfig.logoUrl || ''} onChange={(event) => editSiteConfig('logoUrl', event.target.value)} placeholder="https://… or /uploads/…" /></label>
+      <div className="admin-logo-upload-row">
+        <label className="admin-logo-upload-label">Logo URL<input value={data.siteConfig.logoUrl || ''} onChange={(event) => editSiteConfig('logoUrl', event.target.value)} placeholder="https://… or /uploads/…" /></label>
+        <label className="admin-upload-button"><input type="file" accept="image/*" onChange={uploadLogo} />Upload logo</label>
+      </div>
       <label>Contact email<input type="email" value={data.siteConfig.contactEmail || ''} onChange={(event) => editSiteConfig('contactEmail', event.target.value)} /></label>
       <h3>Social links</h3>
       {Object.entries(data.siteConfig.socials || {}).map(([key, value]) => <label key={key}>{key}<input value={value} onChange={(event) => setData({ ...data, siteConfig: { ...data.siteConfig, socials: { ...data.siteConfig.socials, [key]: event.target.value } } })} /></label>)}
@@ -388,6 +477,23 @@ export default function AdminControlCenter() {
       })()}
     </section>
   );
+
+  const renderManagedRecords = () => {
+    if (!data) return null;
+    const renderEntry = (type: string, record: any, title: string, description: string, status: string, options: string[]) => (
+      <article className="admin-report" key={`${type}-${record.id}`}>
+        <div className="admin-report-icon"><ShieldCheck size={17} /></div>
+        <div className="admin-report-main"><div className="admin-report-title"><b>{title}</b><span className={`admin-status ${status}`}>{status}</span></div>
+          <p>{description || 'No additional content.'}</p><div className="admin-report-meta"><span>ID: {record.id}</span><span>{formatDate(record.createdAt)}</span></div>
+        </div>
+        <label className="admin-report-action">Moderation status<select value={status} disabled={busy} onChange={(event) => updateRecord(type, record.id, event.target.value)}>{options.map((option) => <option key={option} value={option}>{option.replace(/_/g, ' ')}</option>)}</select></label>
+      </article>
+    );
+    if (activeSection === 'Jobs') return <><section className="admin-content-card"><div className="admin-card-heading"><div><span className="admin-eyebrow">HIRING MARKETPLACE</span><h2>Job listings</h2></div><span className="admin-count">{data.jobs.length} records</span></div>{data.jobs.length ? <div className="admin-report-list">{data.jobs.map((job) => renderEntry('job', job, job.title, `${job.organization} · Owner ${job.ownerId}`, job.status, ['open','closed','removed']))}</div> : <div className="admin-empty"><BriefcaseBusiness size={22}/><b>No job listings</b><span>Backend job listings will appear here.</span></div>}</section><section className="admin-content-card"><div className="admin-card-heading"><div><span className="admin-eyebrow">APPLICATION REVIEW</span><h2>Applications</h2></div><span className="admin-count">{data.applications.length} records</span></div>{data.applications.length ? <div className="admin-report-list">{data.applications.map((application) => renderEntry('application', application, `Application for ${application.jobId}`, `Applicant ${application.applicantId}`, application.status, ['Applied','Reviewing','Shortlisted','Interview','Accepted','Rejected']))}</div> : <div className="admin-empty"><Users size={22}/><b>No applications</b><span>Applications will appear here when submitted.</span></div>}</section></>;
+    if (activeSection === 'Community') return <section className="admin-content-card"><div className="admin-card-heading"><div><span className="admin-eyebrow">COMMUNITY SAFETY</span><h2>Community posts</h2></div><span className="admin-count">{data.posts.length} posts</span></div>{data.posts.length ? <div className="admin-report-list">{data.posts.map((post) => <Fragment key={post.id}>{renderEntry('post', post, post.category || 'Community post', post.content, post.status, ['visible','review_required','hidden'])}{post.comments.flatMap((comment: any) => [comment, ...comment.replies]).map((comment: any) => renderEntry('comment', comment, 'Comment / reply', comment.content, comment.status, ['visible','review_required','hidden']))}</Fragment>)}</div> : <div className="admin-empty"><MessageCircle size={22}/><b>No community content</b><span>Community posts will appear here.</span></div>}</section>;
+    const projects = data.projects;
+    return <section className="admin-content-card"><div className="admin-card-heading"><div><span className="admin-eyebrow">DEVELOPER PORTFOLIOS</span><h2>Projects</h2></div><span className="admin-count">{data.stats.projects} projects</span></div>{projects.length ? <div className="admin-report-list">{projects.map((project: any, index: number) => <article className="admin-report" key={`${project.name}-${index}`}><div className="admin-report-icon"><FolderKanban size={17}/></div><div className="admin-report-main"><div className="admin-report-title"><b>{project.name}</b></div><p>{project.description}</p><div className="admin-report-meta"><span>Owner: {project.username || 'Developer'}</span>{project.url && <a href={project.url} target="_blank" rel="noreferrer">View project</a>}</div></div></article>)}</div> : <div className="admin-empty"><FolderKanban size={22}/><b>No portfolio projects</b><span>Developer profile projects will appear here.</span></div>}</section>;
+  };
 
   const renderIntegrationNotice = () => (
     <section className="admin-content-card admin-integration-card">
@@ -419,6 +525,7 @@ export default function AdminControlCenter() {
       ? <section className="admin-content-card admin-error-state"><AlertTriangle size={23} /><h2>Security records could not be loaded</h2><p>{securityError}</p></section>
       : renderSecurity();
     if (activeSection === 'Settings') return renderSettings();
+    if (activeSection === 'Projects' || activeSection === 'Jobs' || activeSection === 'Community') return renderManagedRecords();
     if (integrationSections.includes(activeSection)) return renderIntegrationNotice();
     return null;
   };
@@ -426,7 +533,7 @@ export default function AdminControlCenter() {
   return (
     <main className="admin-shell">
       <aside className={`admin-sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div className="admin-side-brand"><span className="admin-brand-mark"><Sparkles size={17} /></span><span><b>ZERA HUB</b><small>CONTROL CENTER</small></span><button className="admin-sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close menu"><X size={18} /></button></div>
+        <div className="admin-side-brand"><span className="admin-brand-mark"><BrandMark site={data?.siteConfig || null}/></span><span><b>ZERA HUB</b><small>CONTROL CENTER</small></span><button className="admin-sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close menu"><X size={18} /></button></div>
         <div className="admin-side-label">WORKSPACE</div>
         <nav className="admin-side-nav">{sections.map(({ label, icon: Icon }) => <button key={label} className={activeSection === label ? 'active' : ''} onClick={() => { setActiveSection(label); if (label === 'Developers') setUserFilter('developer'); else if (label === 'Hirers') setUserFilter('hire'); else if (label === 'Users') setUserFilter('all'); setSidebarOpen(false); setError(''); setNotice(''); }}><Icon size={17} /><span>{label}</span>{label === 'Reports' && Boolean(data?.stats?.pendingReports) && <i>{data?.stats?.pendingReports}</i>}</button>)}</nav>
         <div className="admin-sidebar-bottom"><div className="admin-online"><span /> API connected</div><button onClick={logout}><LogOut size={16} /> Sign out</button></div>
@@ -442,7 +549,7 @@ export default function AdminControlCenter() {
           <footer className="admin-footer"><span>© {new Date().getFullYear()} ZERA HUB</span><span>Secure operations console <BarChart3 size={13} /></span></footer>
         </div>
       </div>
-      {selectedUser && <div className="admin-modal-backdrop" onClick={() => setSelectedUser(null)}><section className="admin-user-modal" onClick={(event) => event.stopPropagation()}><button className="admin-modal-close" onClick={() => setSelectedUser(null)} aria-label="Close details"><X size={18} /></button><span className="admin-eyebrow">MEMBER PROFILE</span><div className="admin-profile-large">{selectedUser.avatar ? <img src={selectedUser.avatar.startsWith('http') ? selectedUser.avatar : `${API}${selectedUser.avatar}`} alt="" /> : (selectedUser.name || 'Z').slice(0, 1).toUpperCase()}</div><h2>{selectedUser.name || 'Unnamed member'}</h2><p>@{selectedUser.username} · {selectedUser.accountType === 'hire' ? 'Hirer' : 'Developer'}</p><div className="admin-profile-details"><span><b>Account status</b><i className={`admin-status ${selectedUser.status}`}>{selectedUser.status}</i></span><span><b>Verification</b><i>{selectedUser.verified ? 'Verified' : 'Not verified'}</i></span><span><b>Joined</b><i>{formatDate(selectedUser.createdAt)}</i></span></div>{selectedUser.bio && <p className="admin-profile-bio">{selectedUser.bio}</p>}{selectedUser.skills?.length ? <div className="admin-skill-list">{selectedUser.skills.map((skill) => <span key={skill}>{skill}</span>)}</div> : <p className="admin-muted">No skills listed.</p>}<button className={`admin-primary-button ${selectedUser.status === 'active' ? 'danger' : ''}`} disabled={busy} onClick={() => updateUserStatus(selectedUser)}>{selectedUser.status === 'active' ? <><Ban size={16} /> Suspend account</> : <><CheckCircle2 size={16} /> Reactivate account</>}</button></section></div>}
+      {selectedUser && <div className="admin-modal-backdrop" onClick={() => setSelectedUser(null)}><section className="admin-user-modal" onClick={(event) => event.stopPropagation()}><button className="admin-modal-close" onClick={() => setSelectedUser(null)} aria-label="Close details"><X size={18} /></button><span className="admin-eyebrow">MEMBER PROFILE</span><div className="admin-profile-large">{selectedUser.avatar ? <img loading="lazy" src={selectedUser.avatar.startsWith('http') ? selectedUser.avatar : `${API}${selectedUser.avatar}`} alt="" /> : (selectedUser.name || 'Z').slice(0, 1).toUpperCase()}</div><h2>{selectedUser.name || 'Unnamed member'}</h2><p>@{selectedUser.username} · {selectedUser.accountType === 'hire' ? 'Hirer' : 'Developer'}</p><div className="admin-profile-details"><span><b>Account status</b><i className={`admin-status ${selectedUser.status}`}>{selectedUser.status}</i></span><span><b>Moderation state</b><i className={`admin-status ${selectedUser.moderationState || 'active'}`}>{(selectedUser.moderationState || 'none').replace(/_/g,' ')}</i></span><span><b>Verification</b><i>{selectedUser.verified ? 'Verified' : 'Not verified'}</i></span><span><b>Joined</b><i>{formatDate(selectedUser.createdAt)}</i></span></div>{selectedUser.bio && <p className="admin-profile-bio">{selectedUser.bio}</p>}{selectedUser.skills?.length ? <div className="admin-skill-list">{selectedUser.skills.map((skill) => <span key={skill}>{skill}</span>)}</div> : <p className="admin-muted">No skills listed.</p>}<label>Moderation status<select value={userModerationStatus} disabled={busy} onChange={(event) => setUserModerationStatus(event.target.value)}>{['active','warning','review_required','restricted','suspended','disabled'].map((status) => <option key={status} value={status}>{status.replace(/_/g,' ')}</option>)}</select></label><button className={`admin-primary-button ${['restricted','suspended','disabled'].includes(userModerationStatus) ? 'danger' : ''}`} disabled={busy || (userModerationStatus === (selectedUser.moderationState || selectedUser.status))} onClick={() => updateUserStatus(selectedUser,userModerationStatus)}><ShieldCheck size={16} /> Apply moderation status</button></section></div>}
     </main>
   );
 }

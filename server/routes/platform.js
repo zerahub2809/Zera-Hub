@@ -1,0 +1,473 @@
+import express from 'express';
+import { randomUUID } from 'node:crypto';
+
+const applicationStatuses = ['Applied', 'Reviewing', 'Shortlisted', 'Interview', 'Accepted', 'Rejected'];
+const experienceLevels = ['Any', 'Entry', 'Intermediate', 'Senior', 'Lead'];
+const employmentTypes = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship', 'Temporary'];
+const workModes = ['Remote', 'On-site', 'Hybrid'];
+const profileTextFields = [
+  'headline', 'bio', 'location', 'country', 'experienceLevel', 'githubUrl',
+  'linkedinUrl', 'websiteUrl', 'availability', 'workPreference',
+];
+const profileArrayFields = ['skills', 'languages', 'frameworks', 'tools'];
+const profileObjectFields = {
+  education: ['institution', 'qualification', 'fieldOfStudy', 'startDate', 'endDate', 'description'],
+  certifications: ['name', 'issuer', 'issuedAt', 'credentialUrl'],
+  projects: ['name', 'description', 'url', 'role'],
+};
+const jobTextFields = ['title', 'organization', 'description', 'experienceLevel', 'employmentType', 'workMode', 'location', 'deadline', 'additionalRequirements'];
+
+function ensurePlatformCollections(db) {
+  db.connections ||= [];
+  db.jobs ||= [];
+  db.applications ||= [];
+}
+
+function safePublicUser(user, publicUser) {
+  const basic = publicUser(user);
+  return {
+    ...basic,
+    headline: user.profile?.headline || '',
+    location: user.profile?.location || '',
+    country: user.profile?.country || '',
+    experienceLevel: user.profile?.experienceLevel || '',
+    yearsExperience: user.profile?.yearsExperience ?? null,
+    availability: user.profile?.availability || '',
+    workPreference: user.profile?.workPreference || '',
+    languages: user.profile?.languages || [],
+    frameworks: user.profile?.frameworks || [],
+    tools: user.profile?.tools || [],
+    education: user.profile?.education || [],
+    certifications: user.profile?.certifications || [],
+    projects: user.profile?.projects || [],
+    githubUrl: user.profile?.githubUrl || '',
+    linkedinUrl: user.profile?.linkedinUrl || '',
+    websiteUrl: user.profile?.websiteUrl || '',
+  };
+}
+
+function toPublicJob(job, db, publicUser) {
+  const owner = db.users.find((user) => user.id === job.ownerId);
+  return {
+    id: job.id,
+    title: job.title,
+    organization: job.organization,
+    description: job.description,
+    requiredSkills: job.requiredSkills,
+    experienceLevel: job.experienceLevel,
+    employmentType: job.employmentType,
+    workMode: job.workMode,
+    location: job.location,
+    salary: job.salary,
+    deadline: job.deadline,
+    additionalRequirements: job.additionalRequirements,
+    status: job.status,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    hirer: owner ? safePublicUser(owner, publicUser) : null,
+  };
+}
+
+function boundedText(value, maxLength) {
+  return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+function normalizeStringList(value, maxItems = 50, maxLength = 100) {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) return null;
+  return [...new Set(value
+    .filter((item) => typeof item === 'string')
+    .map((item) => item.trim().slice(0, maxLength))
+    .filter(Boolean))].slice(0, maxItems);
+}
+
+function normalizeObjectList(value, fields) {
+  if (!Array.isArray(value)) return null;
+  const normalized = [];
+  for (const item of value.slice(0, 30)) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const result = {};
+    for (const field of fields) {
+      if (item[field] !== undefined && typeof item[field] !== 'string') return null;
+      result[field] = boundedText(item[field] || '', field === 'description' ? 3000 : 500);
+    }
+    if (item.technologies !== undefined) {
+      const technologies = normalizeStringList(item.technologies, 30, 80);
+      if (!technologies) return null;
+      result.technologies = technologies;
+    }
+    normalized.push(result);
+  }
+  return normalized;
+}
+
+function safeExternalUrl(value) {
+  const url = boundedText(value, 1000);
+  if (!url) return '';
+  try {
+    const parsed = new URL(url);
+    if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || parsed.username || parsed.password) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function deadlineHasPassed(value) {
+  if (!value) return false;
+  const timestamp = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? Date.parse(`${value}T23:59:59.999Z`)
+    : Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp < Date.now();
+}
+
+function profileInput(body, current = {}) {
+  const profile = { ...current };
+  for (const key of profileTextFields) {
+    if (body[key] !== undefined) {
+      if (typeof body[key] !== 'string') return { error: `${key} must be text` };
+      profile[key] = boundedText(body[key], key === 'bio' ? 3000 : 300);
+    }
+  }
+  for (const key of profileArrayFields) {
+    if (body[key] !== undefined) {
+      const values = normalizeStringList(body[key], 50, 150);
+      if (!values) return { error: `${key} must be a list of text values` };
+      profile[key] = values;
+    }
+  }
+  for (const [key, fields] of Object.entries(profileObjectFields)) {
+    if (body[key] !== undefined) {
+      const values = normalizeObjectList(body[key], fields);
+      if (!values) return { error: `${key} must be a list of valid profile records` };
+      profile[key] = values;
+    }
+  }
+  if (body.yearsExperience === null || body.yearsExperience === '') {
+    profile.yearsExperience = null;
+  } else if (body.yearsExperience !== undefined) {
+    const years = Number(body.yearsExperience);
+    if (!Number.isInteger(years) || years < 0 || years > 80) return { error: 'yearsExperience must be a whole number from 0 to 80' };
+    profile.yearsExperience = years;
+  }
+  return { profile };
+}
+
+function jobInput(body, current = {}) {
+  const job = { ...current };
+  for (const key of jobTextFields) {
+    if (body[key] !== undefined) {
+      if (typeof body[key] !== 'string') return { error: `${key} must be text` };
+      job[key] = boundedText(body[key], key === 'description' || key === 'additionalRequirements' ? 12000 : 300);
+    }
+  }
+  if (body.requiredSkills !== undefined) {
+    const values = normalizeStringList(body.requiredSkills, 50, 100);
+    if (!values) return { error: 'requiredSkills must be a list of text values' };
+    job.requiredSkills = values;
+  }
+  if (body.salary !== undefined) {
+    const salary = body.salary;
+    if (!salary || typeof salary !== 'object' || Array.isArray(salary)) return { error: 'salary must be an object' };
+    const min = salary.min === '' || salary.min == null ? null : Number(salary.min);
+    const max = salary.max === '' || salary.max == null ? null : Number(salary.max);
+    const currency = boundedText(salary.currency || '', 3).toUpperCase();
+    const period = boundedText(salary.period || '', 30);
+    if ((min !== null && (!Number.isFinite(min) || min < 0)) ||
+        (max !== null && (!Number.isFinite(max) || max < 0)) ||
+        (min !== null && max !== null && min > max)) {
+      return { error: 'Salary range must contain valid non-negative amounts with minimum no greater than maximum' };
+    }
+    if (currency && !/^[A-Z]{3}$/.test(currency)) return { error: 'Currency must be a three-letter currency code' };
+    job.salary = { min, max, currency, period };
+  }
+  if (job.title && !job.organization) return { error: 'Company or organization is required' };
+  if (job.deadline && Number.isNaN(Date.parse(job.deadline))) return { error: 'Application deadline is invalid' };
+  for (const [field, choices] of [
+    ['experienceLevel', experienceLevels.slice(1)],
+    ['employmentType', employmentTypes],
+    ['workMode', workModes],
+  ]) {
+    if (job[field] && !choices.includes(job[field])) return { error: `${field} is not supported` };
+  }
+  return { job };
+}
+
+export function createPlatformRouter({ auth, load, save, publicUser }) {
+  const router = express.Router();
+  const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+
+  router.get('/developers', (req, res) => {
+    const db = load();
+    const search = boundedText(req.query.search, 120).toLowerCase();
+    const skill = boundedText(req.query.skill, 100).toLowerCase();
+    const technology = boundedText(req.query.technology, 100).toLowerCase();
+    const experience = boundedText(req.query.experience, 80).toLowerCase();
+    const location = boundedText(req.query.location, 120).toLowerCase();
+    const availability = boundedText(req.query.availability, 80).toLowerCase();
+    const developers = db.users.filter((user) => {
+      if (user.status !== 'active' || user.accountType !== 'developer') return false;
+      const profile = user.profile || {};
+      const searchable = [
+        user.name, user.username, user.bio, profile.headline, profile.location, profile.country,
+        ...(user.skills || []), ...(profile.languages || []), ...(profile.frameworks || []), ...(profile.tools || []),
+      ].join(' ').toLowerCase();
+      const technologies = [...(user.skills || []), ...(profile.languages || []), ...(profile.frameworks || []), ...(profile.tools || [])].join(' ').toLowerCase();
+      return (!search || searchable.includes(search)) &&
+        (!skill || (user.skills || []).some((value) => value.toLowerCase().includes(skill))) &&
+        (!technology || technologies.includes(technology)) &&
+        (!experience || (profile.experienceLevel || '').toLowerCase() === experience) &&
+        (!location || `${profile.location || ''} ${profile.country || ''}`.toLowerCase().includes(location)) &&
+        (!availability || (profile.availability || '').toLowerCase() === availability);
+    }).slice(0, 100).map((user) => safePublicUser(user, publicUser));
+    res.json(developers);
+  });
+
+  router.get('/developers/:id', (req, res) => {
+    const db = load();
+    const user = db.users.find((item) => item.id === req.params.id && item.status === 'active' && item.accountType === 'developer');
+    if (!user) return res.status(404).json({ error: 'Developer profile not found' });
+    res.json(safePublicUser(user, publicUser));
+  });
+
+  router.get('/profile', auth, (req, res) => {
+    const user = load().users.find((item) => item.id === req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ ...safePublicUser(user, publicUser), profile: user.profile || {} });
+  });
+
+  router.patch('/profile', auth, asyncRoute(async (req, res) => {
+    const db = load();
+    const user = db.users.find((item) => item.id === req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (req.body.name !== undefined) {
+      if (typeof req.body.name !== 'string' || !req.body.name.trim()) return res.status(400).json({ error: 'Name cannot be empty' });
+      user.name = boundedText(req.body.name, 120);
+    }
+    if (req.body.username !== undefined) {
+      const username = boundedText(req.body.username, 40).replace(/^@/, '');
+      if (!/^[a-zA-Z0-9_.-]{3,40}$/.test(username)) return res.status(400).json({ error: 'Username must be 3–40 letters, numbers, dots, underscores, or hyphens' });
+      if (db.users.some((item) => item.id !== user.id && item.username.toLowerCase() === username.toLowerCase())) {
+        return res.status(409).json({ error: 'That username is already in use' });
+      }
+      user.username = username;
+    }
+    if (req.body.avatar !== undefined) {
+      if (typeof req.body.avatar !== 'string') return res.status(400).json({ error: 'avatar must be text' });
+      const avatar = safeExternalUrl(req.body.avatar);
+      if (req.body.avatar && !avatar) return res.status(400).json({ error: 'Profile photo must use an http or https URL without embedded credentials' });
+      user.avatar = avatar;
+    }
+    const parsed = profileInput(req.body, user.profile || {});
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    for (const key of ['githubUrl', 'linkedinUrl', 'websiteUrl']) {
+      if (parsed.profile[key]) {
+        const url = safeExternalUrl(parsed.profile[key]);
+        if (!url) return res.status(400).json({ error: `${key} must use an http or https URL` });
+        parsed.profile[key] = url;
+      }
+    }
+    for (const [field, entries] of [['projects', parsed.profile.projects || []], ['certifications', parsed.profile.certifications || []]]) {
+      for (const entry of entries) {
+        const key = field === 'projects' ? 'url' : 'credentialUrl';
+        if (entry[key]) {
+          const url = safeExternalUrl(entry[key]);
+          if (!url) return res.status(400).json({ error: `${key} must use an http or https URL` });
+          entry[key] = url;
+        }
+      }
+    }
+    user.profile = parsed.profile;
+    user.bio = user.profile.bio || '';
+    user.skills = user.profile.skills || [];
+    ensurePlatformCollections(db);
+    await save(db);
+    res.json({ ...safePublicUser(user, publicUser), profile: user.profile });
+  }));
+
+  router.get('/connections', auth, (req, res) => {
+    const db = load();
+    ensurePlatformCollections(db);
+    const following = db.connections
+      .filter((connection) => connection.followerId === req.user.id)
+      .map((connection) => connection.followingId);
+    res.json(following);
+  });
+
+  router.post('/connections/:userId', auth, asyncRoute(async (req, res) => {
+    if (req.params.userId === req.user.id) return res.status(400).json({ error: 'You cannot follow your own profile' });
+    const db = load();
+    ensurePlatformCollections(db);
+    const target = db.users.find((user) => user.id === req.params.userId && user.status === 'active');
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    const exists = db.connections.some((connection) => connection.followerId === req.user.id && connection.followingId === target.id);
+    if (!exists) db.connections.push({ id: randomUUID(), followerId: req.user.id, followingId: target.id, createdAt: new Date().toISOString() });
+    await save(db);
+    res.status(exists ? 200 : 201).json({ following: true });
+  }));
+
+  router.delete('/connections/:userId', auth, asyncRoute(async (req, res) => {
+    const db = load();
+    ensurePlatformCollections(db);
+    db.connections = db.connections.filter((connection) => !(connection.followerId === req.user.id && connection.followingId === req.params.userId));
+    await save(db);
+    res.json({ following: false });
+  }));
+
+  router.get('/jobs', (req, res) => {
+    const db = load();
+    const search = boundedText(req.query.search, 120).toLowerCase();
+    const skills = boundedText(req.query.skills, 120).toLowerCase();
+    const experience = boundedText(req.query.experience, 80);
+    const employmentType = boundedText(req.query.employmentType, 50);
+    const workMode = boundedText(req.query.workMode, 50);
+    const location = boundedText(req.query.location, 120).toLowerCase();
+    const currency = boundedText(req.query.currency, 3).toUpperCase();
+    const minSalary = req.query.minSalary === undefined ? null : Number(req.query.minSalary);
+    const maxSalary = req.query.maxSalary === undefined ? null : Number(req.query.maxSalary);
+    if ((minSalary !== null && (!Number.isFinite(minSalary) || minSalary < 0)) || (maxSalary !== null && (!Number.isFinite(maxSalary) || maxSalary < 0))) {
+      return res.status(400).json({ error: 'Salary filters must be valid non-negative numbers' });
+    }
+    const jobs = (db.jobs || []).filter((job) => {
+      if (job.status !== 'open') return false;
+      const searchable = `${job.title} ${job.organization} ${job.description} ${job.requiredSkills.join(' ')}`.toLowerCase();
+      return (!search || searchable.includes(search)) &&
+        (!skills || job.requiredSkills.some((value) => value.toLowerCase().includes(skills))) &&
+        (!experience || experience === 'Any' || job.experienceLevel === experience) &&
+        (!employmentType || job.employmentType === employmentType) &&
+        (!workMode || job.workMode === workMode) &&
+        (!location || job.location.toLowerCase().includes(location)) &&
+        (!currency || job.salary?.currency === currency) &&
+        (minSalary === null || job.salary?.max == null || job.salary.max >= minSalary) &&
+        (maxSalary === null || job.salary?.min == null || job.salary.min <= maxSalary);
+    }).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
+    res.json(jobs.map((job) => toPublicJob(job, db, publicUser)));
+  });
+
+  router.get('/jobs/mine', auth, (req, res) => {
+    const db = load();
+    res.json((db.jobs || []).filter((job) => job.ownerId === req.user.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((job) => toPublicJob(job, db, publicUser)));
+  });
+
+  router.post('/jobs', auth, asyncRoute(async (req, res) => {
+    const parsed = jobInput(req.body || {});
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    const job = parsed.job;
+    if (!job.title || !job.organization || !job.description || !job.experienceLevel || !job.employmentType || !job.workMode) {
+      return res.status(400).json({ error: 'Title, organization, description, experience, employment type, and work mode are required' });
+    }
+    if (job.deadline && Number.isNaN(Date.parse(job.deadline))) return res.status(400).json({ error: 'Application deadline is invalid' });
+    if (!job.requiredSkills) job.requiredSkills = [];
+    if (!job.location) job.location = '';
+    if (!job.salary) job.salary = { min: null, max: null, currency: '', period: '' };
+    if (!job.additionalRequirements) job.additionalRequirements = '';
+    const db = load();
+    ensurePlatformCollections(db);
+    const now = new Date().toISOString();
+    const created = { ...job, id: randomUUID(), ownerId: req.user.id, status: 'open', createdAt: now, updatedAt: now };
+    db.jobs.push(created);
+    await save(db);
+    res.status(201).json(toPublicJob(created, db, publicUser));
+  }));
+
+  const optionalAuth = (req, res, next) => {
+    if (!req.headers.authorization) return next();
+    return auth(req, res, next);
+  };
+
+  router.get('/jobs/:id', optionalAuth, (req, res) => {
+    const db = load();
+    const job = (db.jobs || []).find((item) => item.id === req.params.id);
+    if (!job || (job.status !== 'open' && job.ownerId !== req.user?.id)) return res.status(404).json({ error: 'Job not found' });
+    res.json(toPublicJob(job, db, publicUser));
+  });
+
+  router.patch('/jobs/:id', auth, asyncRoute(async (req, res) => {
+    const db = load();
+    const job = (db.jobs || []).find((item) => item.id === req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (job.ownerId !== req.user.id) return res.status(403).json({ error: 'Only the job owner can manage this listing' });
+    if (req.body.status !== undefined) {
+      if (!['open', 'closed'].includes(req.body.status)) return res.status(400).json({ error: 'Job status must be open or closed' });
+      job.status = req.body.status;
+    }
+    if (Object.keys(req.body).some((key) => key !== 'status')) {
+      const parsed = jobInput(req.body, job);
+      if (parsed.error) return res.status(400).json({ error: parsed.error });
+      if (!parsed.job.title || !parsed.job.organization || !parsed.job.description) {
+        return res.status(400).json({ error: 'Title, organization, and description cannot be empty' });
+      }
+      Object.assign(job, parsed.job);
+    }
+    job.updatedAt = new Date().toISOString();
+    await save(db);
+    res.json(toPublicJob(job, db, publicUser));
+  }));
+
+  router.post('/jobs/:id/applications', auth, asyncRoute(async (req, res) => {
+    const db = load();
+    ensurePlatformCollections(db);
+    const job = db.jobs.find((item) => item.id === req.params.id && item.status === 'open');
+    if (!job) return res.status(404).json({ error: 'Open job not found' });
+    if (deadlineHasPassed(job.deadline)) return res.status(410).json({ error: 'The application deadline for this job has passed' });
+    if (job.ownerId === req.user.id) return res.status(400).json({ error: 'You cannot apply to your own job' });
+    if (db.applications.some((application) => application.jobId === job.id && application.applicantId === req.user.id)) {
+      return res.status(409).json({ error: 'You have already applied to this job' });
+    }
+    const note = boundedText(req.body?.note || '', 3000);
+    const application = {
+      id: randomUUID(),
+      jobId: job.id,
+      applicantId: req.user.id,
+      note,
+      status: 'Applied',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    db.applications.push(application);
+    await save(db);
+    res.status(201).json({ ...application, job: toPublicJob(job, db, publicUser) });
+  }));
+
+  router.get('/applications/mine', auth, (req, res) => {
+    const db = load();
+    res.json((db.applications || []).filter((application) => application.applicantId === req.user.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((application) => ({
+        ...application,
+        job: toPublicJob(db.jobs.find((job) => job.id === application.jobId) || {
+          id: application.jobId, title: 'Unavailable job', organization: '', description: '', requiredSkills: [],
+          salary: {}, status: 'closed', createdAt: application.createdAt,
+        }, db, publicUser),
+      })));
+  });
+
+  router.get('/jobs/:id/applications', auth, (req, res) => {
+    const db = load();
+    const job = (db.jobs || []).find((item) => item.id === req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (job.ownerId !== req.user.id) return res.status(403).json({ error: 'Only the job owner can view applicants' });
+    res.json((db.applications || []).filter((application) => application.jobId === job.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((application) => {
+        const applicant = db.users.find((user) => user.id === application.applicantId);
+        return { ...application, applicant: applicant ? safePublicUser(applicant, publicUser) : null };
+      }));
+  });
+
+  router.patch('/applications/:id', auth, asyncRoute(async (req, res) => {
+    const db = load();
+    const application = (db.applications || []).find((item) => item.id === req.params.id);
+    if (!application) return res.status(404).json({ error: 'Application not found' });
+    const job = (db.jobs || []).find((item) => item.id === application.jobId);
+    if (!job || job.ownerId !== req.user.id) return res.status(403).json({ error: 'Only the hirer can manage this application' });
+    if (!applicationStatuses.includes(req.body.status)) return res.status(400).json({ error: 'Unsupported application status' });
+    application.status = req.body.status;
+    application.updatedAt = new Date().toISOString();
+    await save(db);
+    res.json(application);
+  }));
+
+  return router;
+}

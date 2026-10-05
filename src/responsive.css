@@ -1,0 +1,87 @@
+html,body,#root{min-width:320px;max-width:100%;overflow-x:clip}
+img,video,canvas,svg{max-width:100%}
+input,textarea,select,button{max-width:100%}
+body:not(.admin-page) .container{width:min(1216px,calc(100% - 64px))}
+body:not(.admin-page) main,body:not(.admin-page) section,body:not(.admin-page) article,body:not(.admin-page) aside{min-width:0}
+body:not(.admin-page) p,body:not(.admin-page) h1,body:not(.admin-page) h2,body:not(.admin-page) h3,body:not(.admin-page) a,body:not(.admin-page) button{overflow-wrap:anywhere}
+body:not(.admin-page) .header-inner{min-width:0}
+body:not(.admin-page) .desktop-nav{min-width:0}
+body:not(.admin-page) .hero-grid,body:not(.admin-page) .split-callout,body:not(.admin-page) .project-board,body:not(.admin-page) .community-layout,body:not(.admin-page) .messenger,body:not(.admin-page) .platform-profile-grid,body:not(.admin-page) .platform-card-grid{min-width:0}
+body:not(.admin-page) .messenger>*{min-width:0}
+body:not(.admin-page) .chat-panel,body:not(.admin-page) .messages,body:not(.admin-page) .community-feed{min-width:0;max-width:100%}
+body:not(.admin-page) .modal-backdrop,body:not(.admin-page) .ai-overlay{overflow-y:auto}
+body:not(.admin-page) .modal,body:not(.admin-page) .ai-modal,body:not(.admin-page) .ai-modal-shell{min-width:0;max-width:100%}
+body:not(.admin-page) .modal-input,body:not(.admin-page) .auth-fields,body:not(.admin-page) .profile-form,body:not(.admin-page) .admin-login{width:100%;min-width:0}
+body:not(.admin-page) .profile-form input,body:not(.admin-page) .profile-form textarea,body:not(.admin-page) .admin-panel input{width:100%;min-width:0}
+body:not(.admin-page) .footer-grid>*{min-width:0}
+body:not(.admin-page) table{display:block;max-width:100%;overflow-x:auto}
+body:not(.admin-page) .platform-page.page,body:not(.admin-page) .community-page.page{padding-top:0}
+body:not(.admin-page) .platform-page .page-inner,body:not(.admin-page) .community-page .page-inner{padding-top:142px}
+body:not(.admin-page) .ai-page.page{padding-top:0}
+body:not(.admin-page) .ai-page .page-inner{padding-top:132px}
+
+@media(max-width:1120px){
+  body:not(.admin-page) .header-inner{gap:14px}
+  body:not(.admin-page) .desktop-nav{display:none}
+  body:not(.admin-page) .menu-btn{display:grid}
+  body:not(.admin-page) .card-grid.four,body:not(.admin-page) .developer-grid,body:not(.admin-page) .app-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  body:not(.admin-page) .service-grid,body:not(.admin-page) .collab-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:760px){
+  body:not(.admin-page) .platform-page .page-inner,body:not(.admin-page) .community-page .page-inner{padding-top:112px}
+  body:not(.admin-page) .ai-page .page-inner{padding-top:112px}
+  body:not(.admin-page) .container{width:calc(100% - 32px)}
+  body:not(.admin-page) .header-inner{height:66px}
+  body:not(.admin-page) .brand{min-width:0}
+  body:not(.admin-page) .hide-mobile{display:none}
+  body:not(.admin-page) .home{padding-top:66px}
+  body:not(.admin-page) .hero{grid-template-columns:minmax(0,1fr);gap:10px;min-height:auto;padding:58px 0 0}
+  body:not(.admin-page) .hero-grid{grid-template-columns:minmax(0,1fr)}
+  body:not(.admin-page) .hero h1{font-size:clamp(42px,12vw,70px)}
+  body:not(.admin-page) .hero-actions{flex-direction:column}
+  body:not(.admin-page) .hero-actions>.btn{width:100%}
+  body:not(.admin-page) .hero-visual{height:clamp(300px,90vw,430px);max-width:100%;overflow:hidden}
+  body:not(.admin-page) .ring-three{width:min(430px,115vw);height:min(430px,115vw)}
+  body:not(.admin-page) .ring-two{width:min(330px,90vw);height:min(330px,90vw)}
+  body:not(.admin-page) .hero-bottom{gap:6px;flex-wrap:wrap;font-size:6px}
+  body:not(.admin-page) .hero-bottom i{width:10px}
+  body:not(.admin-page) .section-space,body:not(.admin-page) .section-band{padding:72px 0}
+  body:not(.admin-page) .card-grid.four,body:not(.admin-page) .developer-grid,body:not(.admin-page) .service-grid,body:not(.admin-page) .about-grid,body:not(.admin-page) .role-grid,body:not(.admin-page) .timeline,body:not(.admin-page) .collab-grid,body:not(.admin-page) .jobs-grid,body:not(.admin-page) .contact-grid,body:not(.admin-page) .ai-page-grid,body:not(.admin-page) .admin-grid,body:not(.admin-page) .app-grid{grid-template-columns:minmax(0,1fr)}
+  body:not(.admin-page) .page{padding-top:115px}
+  body:not(.admin-page) .page h1{font-size:clamp(35px,10vw,48px)}
+  body:not(.admin-page) .page-caption{font-size:12px}
+  body:not(.admin-page) .toolbar{align-items:stretch;flex-direction:column}
+  body:not(.admin-page) .toolbar>.btn{width:100%}
+  body:not(.admin-page) .search-box{max-width:none}
+  body:not(.admin-page) .project-board,body:not(.admin-page) .community-layout{grid-template-columns:minmax(0,1fr)}
+  body:not(.admin-page) .project-side{border-left:0;border-top:1px solid var(--line)}
+  body:not(.admin-page) .project-main{padding:22px}
+  body:not(.admin-page) .messenger{grid-template-columns:minmax(0,1fr);min-height:0}
+  body:not(.admin-page) .messenger aside{max-height:190px;overflow:auto;border-right:0;border-bottom:1px solid var(--line)}
+  body:not(.admin-page) .chat-panel{min-height:380px}
+  body:not(.admin-page) .footer-grid{grid-template-columns:minmax(0,1fr);gap:24px}
+  body:not(.admin-page) .footer-bottom{align-items:flex-start;flex-direction:column;gap:8px}
+  body:not(.admin-page) .admin-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  body:not(.admin-page) .platform-toolbar{align-items:stretch;flex-direction:column}
+  body:not(.admin-page) .platform-filters{grid-template-columns:repeat(2,minmax(0,1fr))}
+  body:not(.admin-page) .platform-card-grid{grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:480px){
+  body:not(.admin-page) .platform-page .page-inner,body:not(.admin-page) .community-page .page-inner,body:not(.admin-page) .ai-page .page-inner{padding-top:100px}
+  body:not(.admin-page) .container{width:calc(100% - 26px)}
+  body:not(.admin-page) .page-inner{padding-top:24px}
+  body:not(.admin-page) .status-pill{max-width:100%;white-space:normal;line-height:1.5}
+  body:not(.admin-page) .hero-links{gap:12px;flex-wrap:wrap}
+  body:not(.admin-page) .feature-card,body:not(.admin-page) .service-card,body:not(.admin-page) .developer-card,body:not(.admin-page) .role-card,body:not(.admin-page) .job-card,body:not(.admin-page) .story-card,body:not(.admin-page) .contact-card{padding:18px}
+  body:not(.admin-page) .admin-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  body:not(.admin-page) .modal-backdrop{padding:10px}
+  body:not(.admin-page) .modal{width:100%;max-height:calc(100dvh - 20px);overflow:auto;padding:24px 18px}
+  body:not(.admin-page) .modal-submit{width:100%}
+  body:not(.admin-page) .auth-fields{grid-template-columns:minmax(0,1fr)}
+  body:not(.admin-page) .platform-filters{gap:7px}
+  body:not(.admin-page) .platform-form-grid{grid-template-columns:minmax(0,1fr)}
+  body:not(.admin-page) .platform-form-grid .span-2,body:not(.admin-page) .platform-filter-wide{grid-column:auto}
+}
+@media(prefers-reduced-motion:reduce){
+  body:not(.admin-page) *,body:not(.admin-page) *::before,body:not(.admin-page) *::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
