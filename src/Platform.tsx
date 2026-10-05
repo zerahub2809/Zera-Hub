@@ -19,6 +19,13 @@ type ProfileData = {
   yearsExperience: number | null; education: Education[]; certifications: Certification[]; projects: Project[];
   githubUrl: string; linkedinUrl: string; websiteUrl: string; availability: string; workPreference: string;
 };
+type ConnectionStatus = 'pending' | 'accepted' | 'rejected';
+type ConnectionEntry = {
+  id: string;
+  user: ProfileData;
+  status: ConnectionStatus;
+  direction: 'incoming' | 'outgoing' | 'connected';
+};
 type Job = {
   id: string; title: string; organization: string; description: string; requiredSkills: string[]; experienceLevel: string;
   employmentType: string; workMode: string; location: string; salary: { min: number | null; max: number | null; currency: string; period: string };
@@ -68,7 +75,13 @@ function TextList({ value, onChange, placeholder }: { value: string[]; onChange:
   return <input value={value.join(', ')} onChange={(event) => onChange(event.target.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder={placeholder} />;
 }
 
-function DeveloperCard({ developer }: { developer: ProfileData }) {
+function DeveloperCard({ developer, status, busy, onConnect, onRespond }: {
+  developer: ProfileData;
+  status?: ConnectionStatus | 'incoming';
+  busy: boolean;
+  onConnect: () => void;
+  onRespond: (status: 'accepted' | 'rejected') => void;
+}) {
   return <article className="platform-card developer-result">
     <div className="platform-person">
       <div className="platform-avatar">{developer.avatar ? <img loading="lazy" src={developer.avatar} alt="" /> : developer.name?.slice(0, 1).toUpperCase()}</div>
@@ -79,7 +92,15 @@ function DeveloperCard({ developer }: { developer: ProfileData }) {
     {(developer.experienceLevel || developer.availability) && <div className="platform-meta-row"><span>{developer.experienceLevel || 'Experience not specified'}</span>{developer.availability && <span>{developer.availability}</span>}</div>}
     {(developer.location || developer.country) && <div className="platform-meta"><MapPin size={14}/>{[developer.location, developer.country].filter(Boolean).join(', ')}</div>}
     <div className="platform-tags">{[...(developer.skills || []), ...(developer.frameworks || [])].slice(0, 7).map((skill) => <span key={skill}>{skill}</span>)}</div>
-    <div className="platform-card-actions"><Link className="btn btn-ghost" to={`/developers/${encodeURIComponent(developer.id || '')}`}>View profile <ArrowUpRight size={15}/></Link><Link className="btn btn-primary" to={`/messages?user=${encodeURIComponent(developer.id || '')}`}>Message <Send size={14}/></Link></div>
+    <div className="platform-card-actions"><Link className="btn btn-ghost" to={`/developers/${encodeURIComponent(developer.id || '')}`}>View profile <ArrowUpRight size={15}/></Link>
+      {status === 'incoming'
+        ? <><button className="btn btn-primary" onClick={() => onRespond('accepted')} disabled={busy}>Accept</button><button className="btn btn-ghost" onClick={() => onRespond('rejected')} disabled={busy}>Reject</button></>
+        : status === 'accepted'
+          ? <><span className="btn btn-ghost">Connected <Check size={15}/></span><Link className="btn btn-primary" to={`/messages?user=${encodeURIComponent(developer.id || '')}`}>Message <Send size={14}/></Link></>
+          : status === 'pending'
+            ? <button className="btn btn-ghost" disabled>Pending</button>
+            : <button className="btn btn-primary" onClick={onConnect} disabled={busy}>Connect <Plus size={15}/></button>}
+    </div>
   </article>;
 }
 
@@ -89,7 +110,8 @@ export function DeveloperDirectory({ user, onAuth }: { user: Account | null; onA
   const [developers, setDevelopers] = useState<ProfileData[]>([]);
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [filters, setFilters] = useState({ search: '', skill: '', technology: '', experience: '', location: '', availability: '' });
-  const [following, setFollowing] = useState(false);
+  const [connectionStatuses, setConnectionStatuses] = useState<Record<string, ConnectionEntry>>({});
+  const [incomingRequests, setIncomingRequests] = useState<ConnectionEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -118,21 +140,48 @@ export function DeveloperDirectory({ user, onAuth }: { user: Account | null; onA
 
   useEffect(() => {
     let active = true;
-    if (profileId && user) {
-      request<string[]>('/connections').then((ids) => { if (active) setFollowing(ids.includes(profileId)); }).catch(() => {});
-    } else setFollowing(false);
+    if (user) {
+      request<{ connections: ConnectionEntry[] }>('/connections')
+        .then(({ connections }) => {
+          if (!active) return;
+          const byUser = Object.fromEntries(connections.map((connection) => [connection.user.id, connection]));
+          setConnectionStatuses(byUser);
+          setIncomingRequests(connections.filter((connection) => connection.direction === 'incoming'));
+        })
+        .catch((reason: Error) => { if (active) setError(reason.message); });
+    } else {
+      setConnectionStatuses({});
+      setIncomingRequests([]);
+    }
     return () => { active = false; };
   }, [profileId, user]);
 
   const updateFilter = (key: keyof typeof filters, value: string) => setFilters((current) => ({ ...current, [key]: value }));
-  const toggleFollow = async () => {
+  const refreshConnections = async () => {
+    if (!user) return;
+    const { connections } = await request<{ connections: ConnectionEntry[] }>('/connections');
+    setConnectionStatuses(Object.fromEntries(connections.map((connection) => [connection.user.id, connection])));
+    setIncomingRequests(connections.filter((connection) => connection.direction === 'incoming'));
+  };
+  const sendConnectionRequest = async (developerId: string) => {
     if (!user) { onAuth('signin'); return; }
-    if (!profile?.id) return;
     setActionBusy(true);
     setActionError('');
     try {
-      await request(`/connections/${encodeURIComponent(profile.id)}`, { method: following ? 'DELETE' : 'POST' });
-      setFollowing(!following);
+      await request(`/connections/${encodeURIComponent(developerId)}`, { method: 'POST' });
+      await refreshConnections();
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : 'Could not update connection.');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+  const respondToRequest = async (developerId: string, status: 'accepted' | 'rejected') => {
+    setActionBusy(true);
+    setActionError('');
+    try {
+      await request(`/connections/${encodeURIComponent(developerId)}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+      await refreshConnections();
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : 'Could not update connection.');
     } finally {
@@ -166,8 +215,14 @@ export function DeveloperDirectory({ user, onAuth }: { user: Account | null; onA
           <div className="platform-avatar platform-avatar-large">{profile.avatar ? <img loading="lazy" src={profile.avatar} alt="" /> : profile.name?.slice(0, 1).toUpperCase()}</div>
           <div className="platform-profile-title"><span>@{profile.username}</span><h2>{profile.headline || 'Developer'}</h2><p>{[profile.location, profile.country].filter(Boolean).join(', ')}</p></div>
           <div className="platform-card-actions">
-            {user?.id === profile.id ? <Link to="/profile" className="btn btn-primary">Edit profile</Link> : <button className="btn btn-primary" onClick={toggleFollow} disabled={actionBusy}>{following ? 'Following' : 'Connect'} {following ? <Check size={15}/> : <Plus size={15}/>}</button>}
-            {user?.id !== profile.id && <Link className="btn btn-ghost" to={`/messages?user=${encodeURIComponent(profile.id || '')}`}>Message <Send size={14}/></Link>}
+            {user?.id === profile.id ? <Link to="/profile" className="btn btn-primary">Edit profile</Link> : (() => {
+              const connection = connectionStatuses[profile.id || ''];
+              if (connection?.direction === 'incoming') return <><button className="btn btn-primary" onClick={() => respondToRequest(profile.id || '', 'accepted')} disabled={actionBusy}>Accept</button><button className="btn btn-ghost" onClick={() => respondToRequest(profile.id || '', 'rejected')} disabled={actionBusy}>Reject</button></>;
+              if (connection?.status === 'accepted') return <span className="btn btn-ghost">Connected <Check size={15}/></span>;
+              if (connection?.status === 'pending') return <button className="btn btn-ghost" disabled>Pending</button>;
+              return <button className="btn btn-primary" onClick={() => sendConnectionRequest(profile.id || '')} disabled={actionBusy}>Connect <Plus size={15}/></button>;
+            })()}
+            {user?.id !== profile.id && connectionStatuses[profile.id || '']?.status === 'accepted' && <Link className="btn btn-ghost" to={`/messages?user=${encodeURIComponent(profile.id || '')}`}>Message <Send size={14}/></Link>}
             {user?.id !== profile.id && <button className="btn btn-ghost" onClick={reportProfile}><Flag size={14}/> Report profile</button>}
           </div>
         </div>
@@ -195,8 +250,10 @@ export function DeveloperDirectory({ user, onAuth }: { user: Account | null; onA
       <label>Location<input value={filters.location} onChange={(event) => updateFilter('location', event.target.value)} placeholder="City or country"/></label>
       <label>Availability<select value={filters.availability} onChange={(event) => updateFilter('availability', event.target.value)}><option value="">Any</option><option>Available</option><option>Open to opportunities</option><option>Not available</option></select></label>
     </div>
-    <Feedback loading={loading} error={error} empty={!developers.length ? 'No developer profiles match these filters yet.' : undefined}/>
-    <div className="platform-card-grid">{developers.map((developer) => <DeveloperCard key={developer.id} developer={developer}/>)}</div>
+    <Feedback loading={loading} error={error} empty={!developers.some((developer) => developer.id !== user?.id) ? 'No developer profiles match these filters yet.' : undefined}/>
+    {incomingRequests.length > 0 && <section className="platform-card platform-connection-requests"><h2>Connection requests</h2>{incomingRequests.map((connection) => <div className="platform-connection-request" key={connection.id}><span>{connection.user.name} (@{connection.user.username})</span><div className="platform-card-actions"><button className="btn btn-primary" onClick={() => respondToRequest(connection.user.id || '', 'accepted')} disabled={actionBusy}>Accept</button><button className="btn btn-ghost" onClick={() => respondToRequest(connection.user.id || '', 'rejected')} disabled={actionBusy}>Reject</button></div></div>)}</section>}
+    {actionError && <p className="platform-error" role="alert">{actionError}</p>}
+    <div className="platform-card-grid">{developers.filter((developer) => developer.id !== user?.id).map((developer) => <DeveloperCard key={developer.id} developer={developer} status={connectionStatuses[developer.id || '']?.direction === 'incoming' ? 'incoming' : connectionStatuses[developer.id || '']?.status} busy={actionBusy} onConnect={() => sendConnectionRequest(developer.id || '')} onRespond={(status) => respondToRequest(developer.id || '', status)}/>)}</div>
   </PlatformPage>;
 }
 
@@ -315,6 +372,21 @@ export function Marketplace({ user, onAuth }: { user: Account | null; onAuth: (m
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [hasApplied, setHasApplied] = useState(false);
+  const [connectedUserIds, setConnectedUserIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!user) {
+      setConnectedUserIds([]);
+      return;
+    }
+    let active = true;
+    request<{ connections: ConnectionEntry[] }>('/connections')
+      .then(({ connections }) => {
+        if (active) setConnectedUserIds(connections.filter((connection) => connection.status === 'accepted').map((connection) => connection.user.id || ''));
+      })
+      .catch((reason: Error) => { if (active) setError(reason.message); });
+    return () => { active = false; };
+  }, [user]);
 
   useEffect(() => {
     let active = true;
@@ -462,9 +534,9 @@ export function Marketplace({ user, onAuth }: { user: Account | null; onAuth: (m
       {job.deadline && <p className="platform-meta">Apply by {new Date(job.deadline).toLocaleDateString()}</p>}
       {user?.id === job.hirer?.id ? <div className="platform-owner-actions"><div className="platform-card-actions"><button className="btn btn-ghost" onClick={() => { setJobForm({ title: job.title, organization: job.organization, description: job.description, requiredSkills: job.requiredSkills || [], experienceLevel: job.experienceLevel, employmentType: job.employmentType, workMode: job.workMode, location: job.location || '', salary: { min: job.salary?.min == null ? '' : String(job.salary.min), max: job.salary?.max == null ? '' : String(job.salary.max), currency: job.salary?.currency || '', period: job.salary?.period || '' }, deadline: job.deadline?.slice(0, 10) || '', additionalRequirements: job.additionalRequirements || '' }); setEditingJob(true); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Edit listing</button><button className="btn btn-ghost" onClick={() => updateJobStatus(job.status === 'open' ? 'closed' : 'open')}>{job.status === 'open' ? 'Close listing' : 'Reopen listing'}</button></div><b>{applications.length} applicant{applications.length === 1 ? '' : 's'}</b></div> :
         job.status === 'open' && <div className="platform-apply">{applicationClosed ? <p className="platform-error">The application deadline has passed.</p> : <><label>Application note<textarea rows={3} value={applicationNote} onChange={(event) => setApplicationNote(event.target.value)} placeholder="Introduce yourself and explain why this role interests you."/></label><button className="btn btn-primary" onClick={apply} disabled={saving || hasApplied}>{hasApplied ? 'Application submitted' : saving ? 'Submitting…' : 'Apply for this job'} <ArrowUpRight size={15}/></button></>}</div>}
-      {job.hirer && job.hirer.id !== user?.id && <Link className="btn btn-ghost platform-hirer-message" to={`/messages?user=${encodeURIComponent(job.hirer.id)}`}>Message hirer <Send size={14}/></Link>}
+      {job.hirer && job.hirer.id !== user?.id && connectedUserIds.includes(job.hirer.id) && <Link className="btn btn-ghost platform-hirer-message" to={`/messages?user=${encodeURIComponent(job.hirer.id)}`}>Message hirer <Send size={14}/></Link>}
       {applications.length > 0 && job.hirer?.id === user?.id && <section className="platform-applicants"><h3>Applicants</h3>{applications.map((application) => <article className="platform-applicant" key={application.id}>
-        <div><Link to={`/developers/${encodeURIComponent(application.applicant?.id || '')}`}><b>{application.applicant?.name || 'ZERA member'}</b> <span>@{application.applicant?.username}</span></Link><p>{application.note || 'No application note provided.'}</p><div className="platform-tags">{application.applicant?.skills?.slice(0, 5).map((skill) => <span key={skill}>{skill}</span>)}</div>{application.applicant?.id && <Link className="platform-applicant-message" to={`/messages?user=${encodeURIComponent(application.applicant.id)}`}>Message applicant <Send size={13}/></Link>}</div>
+        <div><Link to={`/developers/${encodeURIComponent(application.applicant?.id || '')}`}><b>{application.applicant?.name || 'ZERA member'}</b> <span>@{application.applicant?.username}</span></Link><p>{application.note || 'No application note provided.'}</p><div className="platform-tags">{application.applicant?.skills?.slice(0, 5).map((skill) => <span key={skill}>{skill}</span>)}</div>{application.applicant?.id && connectedUserIds.includes(application.applicant.id) && <Link className="platform-applicant-message" to={`/messages?user=${encodeURIComponent(application.applicant.id)}`}>Message applicant <Send size={13}/></Link>}</div>
         <select aria-label={`Application status for ${application.applicant?.name || 'applicant'}`} value={application.status} onChange={(event) => updateApplicationStatus(application.id, event.target.value)}>{applicationStatuses.map((status) => <option key={status}>{status}</option>)}</select>
       </article>)}</section>}
     </article>}</>}

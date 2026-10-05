@@ -6,6 +6,9 @@ body:not(.admin-page) main,body:not(.admin-page) section,body:not(.admin-page) a
 body:not(.admin-page) p,body:not(.admin-page) h1,body:not(.admin-page) h2,body:not(.admin-page) h3,body:not(.admin-page) a,body:not(.admin-page) button{overflow-wrap:anywhere}
 body:not(.admin-page) .header-inner{min-width:0}
 body:not(.admin-page) .header .header-inner{width:100%;max-width:none;padding-inline:clamp(16px,3vw,40px)}
+input,textarea,select{font-weight:400!important}
+textarea{max-height:min(45vh,320px)}
+.mobile-auth{flex-wrap:wrap}
 body:not(.admin-page) .desktop-nav{min-width:0}
 body:not(.admin-page) .hero-grid,body:not(.admin-page) .split-callout,body:not(.admin-page) .project-board,body:not(.admin-page) .community-layout,body:not(.admin-page) .messenger,body:not(.admin-page) .platform-profile-grid,body:not(.admin-page) .platform-card-grid{min-width:0}
 body:not(.admin-page) .messenger>*{min-width:0}
@@ -29,6 +32,7 @@ body:not(.admin-page) .ai-page .page-inner{padding-top:132px}
   body:not(.admin-page) .service-grid,body:not(.admin-page) .collab-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media(max-width:760px){
+  input,textarea,select{font-size:16px!important}
   body:not(.admin-page) .platform-page .page-inner,body:not(.admin-page) .community-page .page-inner{padding-top:112px}
   body:not(.admin-page) .ai-page .page-inner{padding-top:112px}
   body:not(.admin-page) .container{width:calc(100% - 32px)}

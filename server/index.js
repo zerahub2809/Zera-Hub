@@ -57,6 +57,17 @@ app.use('/api/auth',authLimiter);
 app.use('/api/admin/login',authLimiter);
 app.use('/api/ai',aiLimiter,createAIRouter({auth,load,save}));
 app.use('/api/reports',reportLimiter);
+app.use('/api/messages',(req,res,next)=>auth(req,res,()=>{
+  const targetId=req.method==='POST'?req.body?.toUserId:req.originalUrl.slice('/api/messages/'.length).split('?')[0];
+  if(!targetId)return next();
+  const db=load();
+  const connected=(db.connections||[]).some(connection=>
+    connection.status==='accepted'&&
+    ((connection.requesterId===req.user.id&&connection.recipientId===targetId)||
+     (connection.requesterId===targetId&&connection.recipientId===req.user.id)));
+  if(!connected)return res.status(403).json({error:'Accept the connection request before messaging'});
+  next();
+}));
 
 function tokenFor(user){return jwt.sign({id:user.id,role:user.role||'user',email:user.role==='admin'?user.email:undefined},JWT_SECRET,{expiresIn:'7d'});}
 function auth(req,res,next){const raw=req.headers.authorization||'';const token=raw.startsWith('Bearer ')?raw.slice(7):null;if(!token)return res.status(401).json({error:'Authentication required'});try{req.user=jwt.verify(token,JWT_SECRET);if(req.user.role!=='admin'){const db=load();const account=db.users.find(user=>user.id===req.user.id);if(!account)return res.status(401).json({error:'Account session is no longer valid'});if(account.status==='restricted'&&account.restrictedUntil&&Date.parse(account.restrictedUntil)<=Date.now()){account.status='active';account.restrictedUntil=null;save(db).then(()=>next(),next);return;}if(account.status!=='active')return res.status(403).json({error:account.status==='restricted'?'Account temporarily restricted':'Account suspended'});}next();}catch(error){if(error?.name==='JsonWebTokenError'||error?.name==='TokenExpiredError')return res.status(401).json({error:'Invalid or expired session'});next(error);}}

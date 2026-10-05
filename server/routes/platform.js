@@ -19,6 +19,14 @@ const jobTextFields = ['title', 'organization', 'description', 'experienceLevel'
 
 function ensurePlatformCollections(db) {
   db.connections ||= [];
+  db.connections = db.connections.map((connection) => ({
+    ...connection,
+    id: connection.id || randomUUID(),
+    requesterId: connection.requesterId || connection.followerId,
+    recipientId: connection.recipientId || connection.followingId,
+    status: ['pending', 'accepted', 'rejected'].includes(connection.status) ? connection.status : 'pending',
+    createdAt: connection.createdAt || new Date().toISOString(),
+  }));
   db.jobs ||= [];
   db.applications ||= [];
 }
@@ -287,30 +295,86 @@ export function createPlatformRouter({ auth, load, save, publicUser }) {
   router.get('/connections', auth, (req, res) => {
     const db = load();
     ensurePlatformCollections(db);
-    const following = db.connections
-      .filter((connection) => connection.followerId === req.user.id)
-      .map((connection) => connection.followingId);
-    res.json(following);
+    const connections = db.connections.flatMap((connection) => {
+      const isRequester = connection.requesterId === req.user.id;
+      const isRecipient = connection.recipientId === req.user.id;
+      if (!isRequester && !isRecipient) return [];
+      if (connection.status === 'rejected') return [];
+      const otherId = isRequester ? connection.recipientId : connection.requesterId;
+      const user = db.users.find((account) => account.id === otherId && account.status === 'active');
+      if (!user) return [];
+      return [{
+        id: connection.id,
+        user: safePublicUser(user, publicUser),
+        status: connection.status,
+        direction: connection.status === 'accepted' ? 'connected' : isRequester ? 'outgoing' : 'incoming',
+      }];
+    });
+    res.json({ connections });
   });
 
   router.post('/connections/:userId', auth, asyncRoute(async (req, res) => {
     if (req.params.userId === req.user.id) return res.status(400).json({ error: 'You cannot follow your own profile' });
     const db = load();
     ensurePlatformCollections(db);
-    const target = db.users.find((user) => user.id === req.params.userId && user.status === 'active');
-    if (!target) return res.status(404).json({ error: 'User not found' });
-    const exists = db.connections.some((connection) => connection.followerId === req.user.id && connection.followingId === target.id);
-    if (!exists) db.connections.push({ id: randomUUID(), followerId: req.user.id, followingId: target.id, createdAt: new Date().toISOString() });
+    const target = db.users.find((user) => user.id === req.params.userId && user.status === 'active' && user.accountType === 'developer');
+    if (!target) return res.status(404).json({ error: 'Developer not found' });
+    const existing = db.connections.find((connection) =>
+      (connection.requesterId === req.user.id && connection.recipientId === target.id) ||
+      (connection.requesterId === target.id && connection.recipientId === req.user.id));
+    if (existing?.status === 'accepted') return res.json({ status: 'accepted' });
+    if (existing?.status === 'pending') {
+      if (existing.requesterId === req.user.id) return res.json({ status: 'pending' });
+      return res.json({ status: 'incoming' });
+    }
+    if (existing) {
+      existing.requesterId = req.user.id;
+      existing.recipientId = target.id;
+      existing.status = 'pending';
+      existing.createdAt = new Date().toISOString();
+    } else {
+      db.connections.push({
+        id: randomUUID(),
+        requesterId: req.user.id,
+        recipientId: target.id,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+      });
+    }
     await save(db);
-    res.status(exists ? 200 : 201).json({ following: true });
+    res.status(201).json({ status: 'pending' });
+  }));
+
+  router.patch('/connections/:userId', auth, asyncRoute(async (req, res) => {
+    if (!['accepted', 'rejected'].includes(req.body?.status)) {
+      return res.status(400).json({ error: 'Connection status must be accepted or rejected' });
+    }
+    const db = load();
+    ensurePlatformCollections(db);
+    const connection = db.connections.find((item) =>
+      item.requesterId === req.params.userId &&
+      item.recipientId === req.user.id &&
+      item.status === 'pending');
+    if (!connection) return res.status(404).json({ error: 'Pending connection request not found' });
+    connection.status = req.body.status;
+    connection.updatedAt = new Date().toISOString();
+    await save(db);
+    res.json({ status: connection.status });
   }));
 
   router.delete('/connections/:userId', auth, asyncRoute(async (req, res) => {
     const db = load();
     ensurePlatformCollections(db);
-    db.connections = db.connections.filter((connection) => !(connection.followerId === req.user.id && connection.followingId === req.params.userId));
+    const connection = db.connections.find((item) =>
+      (item.requesterId === req.user.id && item.recipientId === req.params.userId) ||
+      (item.requesterId === req.params.userId && item.recipientId === req.user.id));
+    if (!connection) return res.status(404).json({ error: 'Connection not found' });
+    if (connection.status === 'pending' && connection.requesterId !== req.user.id) {
+      return res.status(403).json({ error: 'Only the requester can cancel a pending connection' });
+    }
+    db.connections = db.connections.filter((item) => item.id !== connection.id);
     await save(db);
-    res.json({ following: false });
+    res.json({ status: 'none' });
   }));
 
   router.get('/jobs', (req, res) => {
