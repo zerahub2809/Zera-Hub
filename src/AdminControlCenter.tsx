@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import './admin.css';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const API = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://zera-hub-api.onrender.com' : 'http://localhost:4000');
 const ADMIN_EMAIL = 'zerahub@outlook.com';
 
 type AdminUser = {

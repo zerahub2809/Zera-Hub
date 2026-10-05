@@ -6,7 +6,7 @@ import {ArrowRight,ArrowUpRight,BrainCircuit,BriefcaseBusiness,Code2,Compass,Fil
 import './index.css';
 import AdminControlCenter from './AdminControlCenter';
 
-const API=import.meta.env.VITE_API_URL||'http://localhost:4000';
+const API=import.meta.env.VITE_API_URL||(import.meta.env.PROD?'https://zera-hub-api.onrender.com':'http://localhost:4000');
 const social={facebook:'https://www.facebook.com/share/1BDT7JfvXm/',instagram:'https://www.instagram.com/zerahub2026/',x:'https://x.com/zerahub2809'};
 
 type User={id:string;name:string;username:string;role:string;accountType:string;bio?:string;skills?:string[];avatar?:string;status:string;verified?:boolean};
