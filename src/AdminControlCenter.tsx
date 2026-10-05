@@ -47,11 +47,13 @@ type AdminUser = {
   restrictedUntil?: string | null;
   verified?: boolean;
   createdAt?: string;
+  verificationRequestAt?: string | null;
 };
 
 type AdminData = {
   users: AdminUser[];
   reports: any[];
+  verificationRequests: AdminUser[];
   moderationActions: any[];
   projects: any[];
   siteConfig: {
@@ -81,7 +83,7 @@ type AdminData = {
 type SecurityData = { loginActivity: any[]; auditLogs: any[] };
 type Section =
   | 'Overview' | 'Users' | 'Developers' | 'Hirers' | 'Projects' | 'Jobs'
-  | 'Community' | 'Reports' | 'Moderation' | 'ZERA AI' | 'Website'
+  | 'Community' | 'Reports' | 'Moderation' | 'Verification' | 'ZERA AI' | 'Website'
   | 'Notifications' | 'Security' | 'Audit Logs' | 'Settings';
 
 const sections: { label: Section; icon: typeof LayoutDashboard }[] = [
@@ -94,6 +96,7 @@ const sections: { label: Section; icon: typeof LayoutDashboard }[] = [
   { label: 'Community', icon: MessageCircle },
   { label: 'Reports', icon: Flag },
   { label: 'Moderation', icon: ShieldCheck },
+  { label: 'Verification', icon: CheckCircle2 },
   { label: 'ZERA AI', icon: BrainCircuit },
   { label: 'Website', icon: Globe2 },
   { label: 'Notifications', icon: Bell },
@@ -178,7 +181,7 @@ export default function AdminControlCenter() {
     request<AdminData>('/api/admin/overview', token)
       .then((response) => {
         if (!response || !Array.isArray(response.users) || !Array.isArray(response.reports) ||
-            !Array.isArray(response.moderationActions) || !Array.isArray(response.jobs) ||
+            !Array.isArray(response.moderationActions) || !Array.isArray(response.verificationRequests) || !Array.isArray(response.jobs) ||
             !Array.isArray(response.applications) || !Array.isArray(response.posts) ||
             !Array.isArray(response.projects) || !response.stats || !response.siteConfig) {
           throw new Error('The secured admin API returned an unexpected dashboard data structure.');
@@ -305,6 +308,24 @@ export default function AdminControlCenter() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : `Could not update this ${type}.`);
     } finally { setBusy(false); }
+  };
+
+  const reviewVerification = async (userId: string, status: 'approved' | 'rejected') => {
+    if (!token) return;
+    setBusy(true);
+    setError('');
+    try {
+      await request(`/api/admin/verification-requests/${encodeURIComponent(userId)}`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
+      await loadOverview(token);
+      setNotice(`Verification request ${status}.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not review verification request.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const saveWebsite = async (event: FormEvent<HTMLFormElement>) => {
@@ -436,6 +457,17 @@ export default function AdminControlCenter() {
     </section>
   );
 
+  const renderVerification = () => (
+    <section className="admin-content-card">
+      <div className="admin-card-heading"><div><span className="admin-eyebrow">PROFILE TRUST</span><h2>Verification requests</h2></div><span className="admin-count">{data?.verificationRequests.length || 0} pending</span></div>
+      {data?.verificationRequests.length ? <div className="admin-report-list">{data.verificationRequests.map((user) => <article className="admin-report" key={user.id}>
+        <div className="admin-avatar">{user.avatar ? <img src={user.avatar.startsWith('http') ? user.avatar : `${API}${user.avatar}`} alt="" /> : user.name.slice(0, 1).toUpperCase()}</div>
+        <div className="admin-report-main"><div className="admin-report-title"><b>{user.name}</b><span>@{user.username}</span></div><p>{user.bio || 'No bio provided.'}</p><div className="admin-report-meta"><span>Submitted {formatDate(user.verificationRequestAt || undefined)}</span><span>{user.skills?.join(', ')}</span></div></div>
+        <div className="admin-form-actions"><button className="admin-primary-button" disabled={busy} onClick={() => reviewVerification(user.id, 'approved')}>Approve</button><button className="admin-secondary-button" disabled={busy} onClick={() => reviewVerification(user.id, 'rejected')}>Reject</button></div>
+      </article>)}</div> : <div className="admin-empty"><CheckCircle2 size={22}/><b>No verification requests</b><span>Submitted profile verification requests will appear here.</span></div>}
+    </section>
+  );
+
   const renderOverview = () => (
     <>
       <div className="admin-metrics">{metricCards.map(({ label, value, icon: Icon, tone }) => <article className="admin-metric" key={label}><div className={`admin-metric-icon ${tone}`}><Icon size={18} /></div><span>{label}</span><b>{value}</b></article>)}</div>
@@ -519,6 +551,7 @@ export default function AdminControlCenter() {
     if (userSections.includes(activeSection)) return renderUsers();
     if (activeSection === 'Overview') return renderOverview();
     if (activeSection === 'Reports') return renderReports();
+    if (activeSection === 'Verification') return renderVerification();
     if (activeSection === 'Moderation') return <section className="admin-content-card"><div className="admin-card-heading"><div><span className="admin-eyebrow">TRUST & SAFETY</span><h2>Moderation actions</h2></div><span className="admin-count">{data.moderationActions.length} actions</span></div>{data.moderationActions.length ? <div className="admin-report-list">{data.moderationActions.slice().reverse().map((action, index) => <article className="admin-report" key={action.id || index}><div className="admin-report-icon"><ShieldCheck size={17} /></div><div className="admin-report-main"><div className="admin-report-title"><b>{action.type || 'Moderation action'}</b><span className="admin-status open">recorded</span></div><p>Reason: {Array.isArray(action.reason) ? action.reason.join(', ') : action.reason || 'Not provided'}</p><div className="admin-report-meta"><span>User ID: {action.userId || 'Not specified'}</span><span>Performed by: {action.adminEmail || 'Automated system'}</span><span>{formatDate(action.createdAt)}</span></div></div></article>)}</div> : <div className="admin-empty"><ShieldCheck size={22} /><b>No moderation actions recorded</b><span>Blocked and moderated content events will appear here.</span></div>}</section>;
     if (activeSection === 'Website') return renderWebsite();
     if (activeSection === 'Security' || activeSection === 'Audit Logs') return securityError

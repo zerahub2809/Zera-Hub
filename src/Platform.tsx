@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowUpRight, BriefcaseBusiness, Check, ExternalLink, Flag, MapPin, Plus, Search, Send, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, BriefcaseBusiness, Check, ExternalLink, Flag, MapPin, Plus, Search, Send, Upload, X } from 'lucide-react';
 import './platform.css';
 
 const API = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://zera-hub-api.onrender.com' : 'http://localhost:4000');
@@ -9,12 +9,13 @@ const employmentTypes = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Int
 const workModes = ['Remote', 'On-site', 'Hybrid'];
 const applicationStatuses = ['Applied', 'Reviewing', 'Shortlisted', 'Interview', 'Accepted', 'Rejected'];
 
-type Account = { id: string; name: string; username: string; accountType: string; avatar?: string; bio?: string; skills?: string[] };
+type Account = { id: string; name: string; username: string; accountType: string; avatar?: string; bio?: string; skills?: string[]; verified?: boolean; online?: boolean; lastSeenAt?: string | null };
 type Project = { name: string; description: string; url: string; role: string };
 type Education = { institution: string; qualification: string; fieldOfStudy: string; startDate: string; endDate: string; description: string };
 type Certification = { name: string; issuer: string; issuedAt: string; credentialUrl: string };
 type ProfileData = {
   id?: string; name: string; username: string; avatar: string; headline: string; bio: string; location: string; country: string;
+  verified?: boolean; verificationRequestAt?: string | null; online?: boolean; lastSeenAt?: string | null;
   skills: string[]; languages: string[]; frameworks: string[]; tools: string[]; experienceLevel: string;
   yearsExperience: number | null; education: Education[]; certifications: Certification[]; projects: Project[];
   githubUrl: string; linkedinUrl: string; websiteUrl: string; availability: string; workPreference: string;
@@ -84,12 +85,12 @@ function DeveloperCard({ developer, status, busy, onConnect, onRespond }: {
 }) {
   return <article className="platform-card developer-result">
     <div className="platform-person">
-      <div className="platform-avatar">{developer.avatar ? <img loading="lazy" src={developer.avatar} alt="" /> : developer.name?.slice(0, 1).toUpperCase()}</div>
-      <div><h2>{developer.name}</h2><span>@{developer.username}</span></div>
+      <div className="platform-avatar">{developer.avatar ? <img loading="lazy" src={developer.avatar.startsWith('http') ? developer.avatar : `${API}${developer.avatar}`} alt="" /> : developer.name?.slice(0, 1).toUpperCase()}</div>
+      <div><h2>{developer.name}{developer.verified && <span className="verification-badge" aria-label="Verified profile"><Check size={11}/></span>}</h2><span>@{developer.username}</span></div>
     </div>
     {developer.headline && <h3>{developer.headline}</h3>}
     <p>{developer.bio || 'Developer building useful digital products.'}</p>
-    {(developer.experienceLevel || developer.availability) && <div className="platform-meta-row"><span>{developer.experienceLevel || 'Experience not specified'}</span>{developer.availability && <span>{developer.availability}</span>}</div>}
+    <div className="platform-meta-row"><span><i className={`platform-presence-dot ${developer.online ? 'online' : ''}`}/>{developer.online ? 'Online' : developer.lastSeenAt ? `Last seen ${new Date(developer.lastSeenAt).toLocaleString()}` : 'Offline'}</span>{developer.experienceLevel && <span>{developer.experienceLevel}</span>}{developer.availability && <span>{developer.availability}</span>}</div>
     {(developer.location || developer.country) && <div className="platform-meta"><MapPin size={14}/>{[developer.location, developer.country].filter(Boolean).join(', ')}</div>}
     <div className="platform-tags">{[...(developer.skills || []), ...(developer.frameworks || [])].slice(0, 7).map((skill) => <span key={skill}>{skill}</span>)}</div>
     <div className="platform-card-actions"><Link className="btn btn-ghost" to={`/developers/${encodeURIComponent(developer.id || '')}`}>View profile <ArrowUpRight size={15}/></Link>
@@ -212,8 +213,8 @@ export function DeveloperDirectory({ user, onAuth }: { user: Account | null; onA
       <Feedback loading={loading} error={error}/>
       {profile && <section className="platform-profile">
         <div className="platform-profile-hero platform-card">
-          <div className="platform-avatar platform-avatar-large">{profile.avatar ? <img loading="lazy" src={profile.avatar} alt="" /> : profile.name?.slice(0, 1).toUpperCase()}</div>
-          <div className="platform-profile-title"><span>@{profile.username}</span><h2>{profile.headline || 'Developer'}</h2><p>{[profile.location, profile.country].filter(Boolean).join(', ')}</p></div>
+          <div className="platform-avatar platform-avatar-large">{profile.avatar ? <img loading="lazy" src={profile.avatar.startsWith('http') ? profile.avatar : `${API}${profile.avatar}`} alt="" /> : profile.name?.slice(0, 1).toUpperCase()}</div>
+          <div className="platform-profile-title"><span>@{profile.username}</span><h2>{profile.name}{profile.verified && <span className="verification-badge" aria-label="Verified profile"><Check size={11}/></span>}</h2><p>{profile.headline || 'Developer'} · {profile.online ? 'Online' : profile.lastSeenAt ? `Last seen ${new Date(profile.lastSeenAt).toLocaleString()}` : 'Offline'}</p><p>{[profile.location, profile.country].filter(Boolean).join(', ')}</p></div>
           <div className="platform-card-actions">
             {user?.id === profile.id ? <Link to="/profile" className="btn btn-primary">Edit profile</Link> : (() => {
               const connection = connectionStatuses[profile.id || ''];
@@ -251,7 +252,7 @@ export function DeveloperDirectory({ user, onAuth }: { user: Account | null; onA
       <label>Availability<select value={filters.availability} onChange={(event) => updateFilter('availability', event.target.value)}><option value="">Any</option><option>Available</option><option>Open to opportunities</option><option>Not available</option></select></label>
     </div>
     <Feedback loading={loading} error={error} empty={!developers.some((developer) => developer.id !== user?.id) ? 'No developer profiles match these filters yet.' : undefined}/>
-    {incomingRequests.length > 0 && <section className="platform-card platform-connection-requests"><h2>Connection requests</h2>{incomingRequests.map((connection) => <div className="platform-connection-request" key={connection.id}><span>{connection.user.name} (@{connection.user.username})</span><div className="platform-card-actions"><button className="btn btn-primary" onClick={() => respondToRequest(connection.user.id || '', 'accepted')} disabled={actionBusy}>Accept</button><button className="btn btn-ghost" onClick={() => respondToRequest(connection.user.id || '', 'rejected')} disabled={actionBusy}>Reject</button></div></div>)}</section>}
+    {user && <section className="platform-card platform-connection-requests"><h2>Connection requests</h2>{incomingRequests.length ? incomingRequests.map((connection) => <div className="platform-connection-request" key={connection.id}><span className="platform-request-person"><span className="platform-avatar">{connection.user.avatar ? <img src={connection.user.avatar.startsWith('http') ? connection.user.avatar : `${API}${connection.user.avatar}`} alt=""/> : connection.user.name.slice(0, 1).toUpperCase()}</span><span><b>{connection.user.name}{connection.user.verified && <span className="verification-badge" aria-label="Verified profile"><Check size={11}/></span>}</b><small>@{connection.user.username}</small></span></span><div className="platform-card-actions"><button className="btn btn-primary" onClick={() => respondToRequest(connection.user.id || '', 'accepted')} disabled={actionBusy}>Accept</button><button className="btn btn-ghost" onClick={() => respondToRequest(connection.user.id || '', 'rejected')} disabled={actionBusy}>Reject</button></div></div>) : <p className="platform-hint">No pending connection requests.</p>}</section>}
     {actionError && <p className="platform-error" role="alert">{actionError}</p>}
     <div className="platform-card-grid">{developers.filter((developer) => developer.id !== user?.id).map((developer) => <DeveloperCard key={developer.id} developer={developer} status={connectionStatuses[developer.id || '']?.direction === 'incoming' ? 'incoming' : connectionStatuses[developer.id || '']?.status} busy={actionBusy} onConnect={() => sendConnectionRequest(developer.id || '')} onRespond={(status) => respondToRequest(developer.id || '', status)}/>)}</div>
   </PlatformPage>;
@@ -267,6 +268,8 @@ export function ProfileEditor({ user, onAuth, onUserUpdated }: { user: Account |
   const [profile, setProfile] = useState<ProfileData>(emptyProfile());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [requestingVerification, setRequestingVerification] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   useEffect(() => {
@@ -279,6 +282,38 @@ export function ProfileEditor({ user, onAuth, onUserUpdated }: { user: Account |
     return () => { active = false; };
   }, [user]);
   const setField = <K extends keyof ProfileData>(key: K, value: ProfileData[K]) => setProfile((current) => ({ ...current, [key]: value }));
+  const uploadAvatar = async (file: File) => {
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'].includes(file.type) || file.size > 2 * 1024 * 1024) {
+      setError('Choose a JPEG, PNG, GIF, WebP, or AVIF image under 2 MB.');
+      return;
+    }
+    setUploadingAvatar(true); setError('');
+    try {
+      const formData = new FormData();
+      formData.append('avatar', file);
+      const token = localStorage.getItem('zera_token');
+      const response = await fetch(`${API}/api/profile/avatar`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: formData });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not upload profile photo.');
+      setProfile((current) => ({ ...current, avatar: result.avatar || '' }));
+      const updatedUser = { ...user!, avatar: result.avatar || '' };
+      localStorage.setItem('zera_user', JSON.stringify(updatedUser));
+      onUserUpdated?.(updatedUser);
+      setNotice('Profile photo updated.');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not upload profile photo.');
+    } finally { setUploadingAvatar(false); }
+  };
+  const requestVerification = async () => {
+    setRequestingVerification(true); setError(''); setNotice('');
+    try {
+      await request('/profile/verification-request', { method: 'POST', body: '{}' });
+      setProfile((current) => ({ ...current, verificationRequestAt: new Date().toISOString() }));
+      setNotice('Your verification request has been submitted for administrator review.');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not request verification.');
+    } finally { setRequestingVerification(false); }
+  };
   const setRecord = <K extends 'projects' | 'education' | 'certifications'>(key: K, index: number, field: keyof ProfileData[K][number], value: string) => {
     setProfile((current) => ({ ...current, [key]: current[key].map((record, i) => i === index ? { ...record, [field]: value } : record) }));
   };
@@ -313,7 +348,7 @@ export function ProfileEditor({ user, onAuth, onUserUpdated }: { user: Account |
       <div className="platform-form-grid">
         <label>Full name<input value={profile.name} onChange={(event) => setField('name', event.target.value)} required/></label>
         <label>Username<input value={profile.username} onChange={(event) => setField('username', event.target.value)} minLength={3} maxLength={40} required/></label>
-        <label>Profile photo URL<input type="url" value={profile.avatar} onChange={(event) => setField('avatar', event.target.value)} placeholder="https://…"/></label>
+        <label>Profile photo URL<input type="url" value={profile.avatar} onChange={(event) => setField('avatar', event.target.value)} placeholder="https://…"/><span className="profile-photo-upload">{profile.avatar && <img src={profile.avatar.startsWith('http') ? profile.avatar : `${API}${profile.avatar}`} alt="Profile preview"/>}<span><Upload size={14}/><input type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" disabled={uploadingAvatar} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAvatar(file); event.target.value = ''; }}/>{uploadingAvatar ? 'Uploading…' : 'Upload profile photo'}</span></span></label>
         <label>Professional headline<input value={profile.headline} onChange={(event) => setField('headline', event.target.value)} placeholder="e.g. Product-focused frontend engineer"/></label>
         <label className="span-2">About<textarea rows={4} value={profile.bio} onChange={(event) => setField('bio', event.target.value)} maxLength={3000}/></label>
         <label>City / region<input value={profile.location} onChange={(event) => setField('location', event.target.value)}/></label>
@@ -333,6 +368,7 @@ export function ProfileEditor({ user, onAuth, onUserUpdated }: { user: Account |
       <ProfileRecords title="Portfolio projects" items={profile.projects} onAdd={() => addRecord('projects')} onRemove={(index) => removeRecord('projects', index)} onChange={(index, field, value) => setRecord('projects', index, field as keyof Project, value)} fields={['name', 'description', 'url', 'role']}/>
       <ProfileRecords title="Education" items={profile.education} onAdd={() => addRecord('education')} onRemove={(index) => removeRecord('education', index)} onChange={(index, field, value) => setRecord('education', index, field as keyof Education, value)} fields={['institution', 'qualification', 'fieldOfStudy', 'startDate', 'endDate', 'description']}/>
       <ProfileRecords title="Certifications" items={profile.certifications} onAdd={() => addRecord('certifications')} onRemove={(index) => removeRecord('certifications', index)} onChange={(index, field, value) => setRecord('certifications', index, field as keyof Certification, value)} fields={['name', 'issuer', 'issuedAt', 'credentialUrl']}/>
+      <section className="verification-request"><div><b>Profile verification</b><p>{profile.verified ? 'Your profile is verified.' : profile.verificationRequestAt ? 'Your request is awaiting administrator review.' : 'Verification requests are reviewed by a ZERA HUB administrator.'}</p></div>{profile.verified ? <span className="verification-badge"><Check size={11}/></span> : <button type="button" className="btn btn-ghost" onClick={() => void requestVerification()} disabled={requestingVerification || Boolean(profile.verificationRequestAt)}>{requestingVerification ? 'Submitting…' : profile.verificationRequestAt ? 'Pending review' : 'Request verification'}</button>}</section>
       {error && <p className="platform-error" role="alert">{error}</p>}{notice && <p className="platform-success" role="status">{notice}</p>}
       <div className="platform-editor-actions"><button className="btn btn-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save profile'}</button><Link className="btn btn-ghost" to={user.accountType === 'developer' ? `/developers/${encodeURIComponent(user.id)}` : '/developers'}>Preview public profile</Link></div>
     </form>}

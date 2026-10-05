@@ -200,7 +200,7 @@ function jobInput(body, current = {}) {
   return { job };
 }
 
-export function createPlatformRouter({ auth, load, save, publicUser }) {
+export function createPlatformRouter({ auth, load, save, publicUser, notifyUser }) {
   const router = express.Router();
   const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
@@ -240,7 +240,7 @@ export function createPlatformRouter({ auth, load, save, publicUser }) {
   router.get('/profile', auth, (req, res) => {
     const user = load().users.find((item) => item.id === req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json({ ...safePublicUser(user, publicUser), profile: user.profile || {} });
+    res.json({ ...safePublicUser(user, publicUser), verificationRequestAt: user.verificationRequestAt || null, profile: user.profile || {} });
   });
 
   router.patch('/profile', auth, asyncRoute(async (req, res) => {
@@ -290,6 +290,43 @@ export function createPlatformRouter({ auth, load, save, publicUser }) {
     ensurePlatformCollections(db);
     await save(db);
     res.json({ ...safePublicUser(user, publicUser), profile: user.profile });
+  }));
+
+  router.patch('/profile/preferences', auth, asyncRoute(async (req, res) => {
+    const wallpaper = req.body?.chatWallpaper;
+    if (!['dark-grid', 'deep-space', 'circuit', 'aurora', 'light-grid', 'light-circuit'].includes(wallpaper)) {
+      return res.status(400).json({ error: 'Choose a supported chat wallpaper' });
+    }
+    const db = load();
+    const user = db.users.find((item) => item.id === req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    user.preferences ||= {};
+    user.preferences.chatWallpaper = wallpaper;
+    await save(db);
+    res.json({ chatWallpaper: wallpaper });
+  }));
+
+  router.get('/profile/preferences', auth, (req, res) => {
+    const user = load().users.find((item) => item.id === req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ chatWallpaper: user.preferences?.chatWallpaper || 'dark-grid' });
+  });
+
+  router.post('/profile/verification-request', auth, asyncRoute(async (req, res) => {
+    const db = load();
+    const user = db.users.find((item) => item.id === req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const profile = user.profile || {};
+    const ready = Boolean(user.name?.trim() && user.username?.trim() && user.avatar &&
+      profile.headline?.trim() && profile.bio?.trim() && (profile.location?.trim() || profile.country?.trim()) &&
+      (user.skills || []).length >= 3 && profile.experienceLevel &&
+      (profile.projects || []).some((project) => project.name?.trim() && project.description?.trim()));
+    if (!ready) return res.status(400).json({ error: 'Complete your profile photo, headline, about section, location, three skills, experience level, and one described project before requesting verification.' });
+    if (user.verified) return res.status(409).json({ error: 'Your profile is already verified' });
+    if (user.verificationRequestAt) return res.status(409).json({ error: 'Your verification request is already awaiting review' });
+    user.verificationRequestAt = new Date().toISOString();
+    await save(db);
+    res.status(202).json({ requested: true, requestedAt: user.verificationRequestAt });
   }));
 
   router.get('/connections', auth, (req, res) => {
@@ -342,6 +379,7 @@ export function createPlatformRouter({ auth, load, save, publicUser }) {
       });
     }
     await save(db);
+    await notifyUser?.(target.id, 'connection_request', 'New connection request', `${db.users.find(user=>user.id===req.user.id)?.name||'A developer'} wants to connect with you.`, { userId: req.user.id, url: `/developers/${encodeURIComponent(req.user.id)}` });
     res.status(201).json({ status: 'pending' });
   }));
 
@@ -359,6 +397,7 @@ export function createPlatformRouter({ auth, load, save, publicUser }) {
     connection.status = req.body.status;
     connection.updatedAt = new Date().toISOString();
     await save(db);
+    if(connection.status==='accepted')await notifyUser?.(connection.requesterId,'connection_accepted','Connection accepted',`${db.users.find(user=>user.id===req.user.id)?.name||'A developer'} accepted your connection request.`,{userId:req.user.id,url:`/developers/${encodeURIComponent(req.user.id)}`});
     res.json({ status: connection.status });
   }));
 
