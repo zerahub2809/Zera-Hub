@@ -5,7 +5,7 @@ import './community.css';
 
 const API = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://zera-hub-api.onrender.com' : 'http://localhost:4000');
 type User = { id: string; name: string; username: string; avatar?: string } | null;
-type Comment = { id: string; userId: string; content: string; createdAt: string; author: NonNullable<User>; replies: Array<Comment> };
+type Comment = { id: string; userId: string; content: string; createdAt: string; updatedAt?: string; author: NonNullable<User>; replies: Array<Comment> };
 type Post = {
   id: string; author: NonNullable<User>; content: string; code: string; imageUrl: string; linkUrl: string; tags: string[];
   category: string; createdAt: string; updatedAt: string; reactionCount: number; reacted: boolean; bookmarked: boolean; comments: Comment[];

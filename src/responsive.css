@@ -5,6 +5,7 @@ body:not(.admin-page) .container{width:min(1216px,calc(100% - 64px))}
 body:not(.admin-page) main,body:not(.admin-page) section,body:not(.admin-page) article,body:not(.admin-page) aside{min-width:0}
 body:not(.admin-page) p,body:not(.admin-page) h1,body:not(.admin-page) h2,body:not(.admin-page) h3,body:not(.admin-page) a,body:not(.admin-page) button{overflow-wrap:anywhere}
 body:not(.admin-page) .header-inner{min-width:0}
+body:not(.admin-page) .header .header-inner{width:100%;max-width:none;padding-inline:clamp(16px,3vw,40px)}
 body:not(.admin-page) .desktop-nav{min-width:0}
 body:not(.admin-page) .hero-grid,body:not(.admin-page) .split-callout,body:not(.admin-page) .project-board,body:not(.admin-page) .community-layout,body:not(.admin-page) .messenger,body:not(.admin-page) .platform-profile-grid,body:not(.admin-page) .platform-card-grid{min-width:0}
 body:not(.admin-page) .messenger>*{min-width:0}

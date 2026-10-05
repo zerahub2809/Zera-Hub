@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { Fragment } from 'react';
 import {
   AlertTriangle,
@@ -326,7 +326,7 @@ export default function AdminControlCenter() {
     }
   };
 
-  const uploadLogo = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadLogo = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !token) return;
     setBusy(true);
@@ -334,11 +334,11 @@ export default function AdminControlCenter() {
     try {
       const formData = new FormData();
       formData.append('logo', file);
-      const response = await request<{ logoUrl?: string } | { siteConfig?: { logoUrl?: string } }>('/api/admin/logo', token, {
+      const response = await request<{ logoUrl: string }>('/api/admin/logo', token, {
         method: 'POST',
         body: formData,
       });
-      const logoUrl = response.logoUrl || response.siteConfig?.logoUrl || '';
+      const logoUrl = response.logoUrl;
       setData((current) => current ? { ...current, siteConfig: { ...current.siteConfig, logoUrl } } : current);
       await loadOverview(token);
       setNotice('Logo uploaded successfully.');

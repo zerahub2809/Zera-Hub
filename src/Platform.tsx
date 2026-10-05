@@ -153,6 +153,11 @@ export function DeveloperDirectory({ user, onAuth }: { user: Account | null; onA
   };
 
   if (profileId) {
+    const profileLinks: Array<[string, string]> = [
+      [profile?.githubUrl || '', 'GitHub'],
+      [profile?.linkedinUrl || '', 'LinkedIn'],
+      [profile?.websiteUrl || '', 'Website'],
+    ];
     return <PlatformPage eyebrow="Developer profile" title={profile?.name || 'Developer profile'} caption="A professional profile with skills, work, experience, and ways to connect.">
       <Link className="platform-back" to="/developers"><ArrowLeft size={15}/> All developers</Link>
       <Feedback loading={loading} error={error}/>
@@ -175,7 +180,7 @@ export function DeveloperDirectory({ user, onAuth }: { user: Account | null; onA
           <div className="platform-card"><h3>Projects</h3>{profile.projects?.length ? profile.projects.map((project, index) => <div className="platform-record" key={`${project.name}-${index}`}><b>{project.name}</b><p>{project.description}</p>{project.role && <small>{project.role}</small>}{project.url && <a href={project.url} target="_blank" rel="noreferrer">View project <ExternalLink size={13}/></a>}</div>) : <p>No projects added yet.</p>}</div>
           <div className="platform-card"><h3>Education</h3>{profile.education?.length ? profile.education.map((item, index) => <div className="platform-record" key={`${item.institution}-${index}`}><b>{item.qualification || item.fieldOfStudy}</b><p>{item.institution}{item.startDate || item.endDate ? ` · ${item.startDate}–${item.endDate}` : ''}</p></div>) : <p>No education listed.</p>}</div>
           <div className="platform-card"><h3>Certifications</h3>{profile.certifications?.length ? profile.certifications.map((item, index) => <div className="platform-record" key={`${item.name}-${index}`}><b>{item.name}</b><p>{item.issuer}{item.issuedAt ? ` · ${item.issuedAt}` : ''}</p></div>) : <p>No certifications listed.</p>}</div>
-          <div className="platform-card"><h3>Links</h3><div className="platform-links">{[[profile.githubUrl, 'GitHub'], [profile.linkedinUrl, 'LinkedIn'], [profile.websiteUrl, 'Website']].filter(([url]) => url).map(([url, label]) => <a key={label} href={String(url)} target="_blank" rel="noreferrer">{label} <ExternalLink size={13}/></a>)}</div>{!profile.githubUrl && !profile.linkedinUrl && !profile.websiteUrl && <p>No links added.</p>}</div>
+          <div className="platform-card"><h3>Links</h3><div className="platform-links">{profileLinks.filter(([url]) => url).map(([url, label]) => <a key={label} href={url} target="_blank" rel="noreferrer">{label} <ExternalLink size={13}/></a>)}</div>{!profile.githubUrl && !profile.linkedinUrl && !profile.websiteUrl && <p>No links added.</p>}</div>
         </div>
       </section>}
     </PlatformPage>;
@@ -231,6 +236,7 @@ export function ProfileEditor({ user, onAuth, onUserUpdated }: { user: Account |
   };
   const saveProfile = async (event: FormEvent) => {
     event.preventDefault();
+    if (!user) return;
     setSaving(true); setError(''); setNotice('');
     try {
       const saved = await request<ProfileData & { profile?: Partial<ProfileData> }>('/profile', { method: 'PATCH', body: JSON.stringify(profile) });
@@ -276,12 +282,12 @@ export function ProfileEditor({ user, onAuth, onUserUpdated }: { user: Account |
   </PlatformPage>;
 }
 
-function ProfileRecords<T extends Record<string, string>>({ title, items, fields, onAdd, onRemove, onChange }: {
-  title: string; items: T[]; fields: string[]; onAdd: () => void; onRemove: (index: number) => void; onChange: (index: number, field: string, value: string) => void;
+function ProfileRecords<T extends object>({ title, items, fields, onAdd, onRemove, onChange }: {
+  title: string; items: T[]; fields: Array<Extract<keyof T, string>>; onAdd: () => void; onRemove: (index: number) => void; onChange: (index: number, field: Extract<keyof T, string>, value: string) => void;
 }) {
   return <section className="platform-record-editor"><div className="platform-section-title"><h2>{title}</h2><button type="button" className="btn btn-ghost" onClick={onAdd}><Plus size={14}/> Add</button></div>
     {!items.length && <p className="platform-hint">No entries yet. Add one when you are ready.</p>}
-    {items.map((item, index) => <div className="platform-record-fields" key={index}><div className="platform-form-grid">{fields.map((field) => <label key={field}>{field.replace(/[A-Z]/g, (letter) => ` ${letter}`).replace(/^./, (letter) => letter.toUpperCase())}{field === 'description' ? <textarea rows={2} value={item[field] || ''} onChange={(event) => onChange(index, field, event.target.value)}/> : <input value={item[field] || ''} onChange={(event) => onChange(index, field, event.target.value)}/>}</label>)}</div><button type="button" className="platform-remove" onClick={() => onRemove(index)} aria-label={`Remove ${title.toLowerCase()} entry`}><X size={15}/></button></div>)}
+    {items.map((item, index) => <div className="platform-record-fields" key={index}><div className="platform-form-grid">{fields.map((field) => <label key={field}>{field.replace(/[A-Z]/g, (letter) => ` ${letter}`).replace(/^./, (letter) => letter.toUpperCase())}{field === 'description' ? <textarea rows={2} value={String(item[field] ?? '')} onChange={(event) => onChange(index, field, event.target.value)}/> : <input value={String(item[field] ?? '')} onChange={(event) => onChange(index, field, event.target.value)}/>}</label>)}</div><button type="button" className="platform-remove" onClick={() => onRemove(index)} aria-label={`Remove ${title.toLowerCase()} entry`}><X size={15}/></button></div>)}
   </section>;
 }
 
