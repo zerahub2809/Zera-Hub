@@ -294,22 +294,44 @@ export function createPlatformRouter({ auth, load, save, publicUser, notifyUser 
 
   router.patch('/profile/preferences', auth, asyncRoute(async (req, res) => {
     const wallpaper = req.body?.chatWallpaper;
-    if (!['dark-grid', 'deep-space', 'circuit', 'aurora', 'light-grid', 'light-circuit'].includes(wallpaper)) {
+    const theme = req.body?.theme;
+    const wallpaperImage = req.body?.chatWallpaperImage;
+    const notificationSound = req.body?.notificationSound;
+    if (wallpaper !== undefined && !['dark-grid', 'deep-space', 'circuit', 'aurora', 'light-grid', 'light-circuit', 'solid-midnight', 'solid-slate', 'gradient-violet', 'gradient-ocean', 'custom'].includes(wallpaper)) {
       return res.status(400).json({ error: 'Choose a supported chat wallpaper' });
     }
+    if (theme !== undefined && !['light', 'dark'].includes(theme)) return res.status(400).json({ error: 'Theme must be light or dark' });
+    if (notificationSound !== undefined && typeof notificationSound !== 'boolean') return res.status(400).json({ error: 'notificationSound must be a boolean' });
+    if (wallpaperImage !== undefined && (typeof wallpaperImage !== 'string' || (wallpaperImage && !/^\/uploads\/[a-zA-Z0-9._-]+$/.test(wallpaperImage)))) {
+      return res.status(400).json({ error: 'Chat background must be a valid uploaded image path' });
+    }
+    if (wallpaper === undefined && theme === undefined && wallpaperImage === undefined && notificationSound === undefined) return res.status(400).json({ error: 'Provide a preference to update' });
     const db = load();
     const user = db.users.find((item) => item.id === req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     user.preferences ||= {};
-    user.preferences.chatWallpaper = wallpaper;
+    if (wallpaper !== undefined) user.preferences.chatWallpaper = wallpaper;
+    if (wallpaperImage !== undefined) user.preferences.chatWallpaperImage = wallpaperImage;
+    if (theme !== undefined) user.preferences.theme = theme;
+    if (notificationSound !== undefined) user.preferences.notificationSound = notificationSound;
     await save(db);
-    res.json({ chatWallpaper: wallpaper });
+    res.json({
+      chatWallpaper: user.preferences.chatWallpaper || 'dark-grid',
+      chatWallpaperImage: user.preferences.chatWallpaperImage || '',
+      theme: user.preferences.theme || 'dark',
+      notificationSound: user.preferences.notificationSound ?? false,
+    });
   }));
 
   router.get('/profile/preferences', auth, (req, res) => {
     const user = load().users.find((item) => item.id === req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json({ chatWallpaper: user.preferences?.chatWallpaper || 'dark-grid' });
+    res.json({
+      chatWallpaper: user.preferences?.chatWallpaper || 'dark-grid',
+      chatWallpaperImage: user.preferences?.chatWallpaperImage || '',
+      theme: user.preferences?.theme || 'dark',
+      notificationSound: user.preferences?.notificationSound ?? false,
+    });
   });
 
   router.post('/profile/verification-request', auth, asyncRoute(async (req, res) => {
