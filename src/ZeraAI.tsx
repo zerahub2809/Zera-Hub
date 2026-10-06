@@ -99,18 +99,15 @@ export function ZeraAIWorkspace({ user, site = null, initialPrompt = '', initial
       const targets = [chatScreenRef.current, chatModalRef.current];
       if (!mobileViewport.matches) {
         targets.forEach((target) => {
-          target?.style.removeProperty('--ai-visible-viewport-height');
-          target?.style.removeProperty('--ai-visible-viewport-top');
+          target?.style.removeProperty('--ai-keyboard-bottom-inset');
         });
         return;
       }
 
       const viewport = window.visualViewport;
-      const height = viewport?.height ?? window.innerHeight;
-      const top = viewport?.offsetTop ?? 0;
+      const bottom = Math.max(0, window.innerHeight - ((viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight)));
       targets.forEach((target) => {
-        target?.style.setProperty('--ai-visible-viewport-height', `${height}px`);
-        target?.style.setProperty('--ai-visible-viewport-top', `${top}px`);
+        target?.style.setProperty('--ai-keyboard-bottom-inset', `${bottom}px`);
       });
     };
     const viewport = window.visualViewport;
@@ -125,8 +122,7 @@ export function ZeraAIWorkspace({ user, site = null, initialPrompt = '', initial
       viewport?.removeEventListener('scroll', updateChatViewport);
       mobileViewport.removeEventListener('change', updateChatViewport);
       [chatScreenRef.current, chatModalRef.current].forEach((target) => {
-        target?.style.removeProperty('--ai-visible-viewport-height');
-        target?.style.removeProperty('--ai-visible-viewport-top');
+        target?.style.removeProperty('--ai-keyboard-bottom-inset');
       });
     };
   }, []);

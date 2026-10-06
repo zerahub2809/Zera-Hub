@@ -73,8 +73,7 @@
 .ai-modal-close{position:absolute;right:10px;top:13px;z-index:3;display:grid;place-items:center;width:29px;height:29px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:#0a0e18;color:#aab4c5}
 
 @media(max-width:760px){
-  .ai-overlay{inset-block-start:var(--ai-visible-viewport-top, 0px);inset-block-end:auto;height:var(--ai-visible-viewport-height, 100svh)}
-  .ai-modal-shell{height:calc(var(--ai-visible-viewport-height, 100svh) - 24px)}
+  .ai-modal-shell{height:calc(100svh - 24px)}
   .ai-page .page-inner{padding-top:112px;padding-bottom:50px}
   .ai-workspace{grid-template-columns:1fr;height:calc(100svh - 340px);min-height:0;flex:none}
   .ai-history{position:absolute;z-index:5;inset:0 auto 0 0;width:min(300px,85%);background:#0a0e18;transform:translateX(-105%);transition:transform .22s}
@@ -83,7 +82,9 @@
   .ai-overlay{padding:12px}
   .ai-composer{margin:0 9px 9px}
   .ai-messages{padding:15px 11px}
-  .ai-composer textarea{font-size:16px}
+  .ai-composer{position:fixed;z-index:20;right:12px;bottom:calc(var(--ai-keyboard-bottom-inset, 0px) + 9px);left:12px;box-sizing:border-box;height:154px;margin:0 9px;overflow:hidden}
+  .ai-composer textarea{box-sizing:border-box;height:77px;min-height:77px;max-height:77px;resize:none;font-size:16px}
+  .ai-messages{padding-bottom:164px}
 }
 @media(max-width:480px){
   .ai-page .page-inner{padding-top:100px}
@@ -125,8 +126,8 @@
 @media(max-width:760px){
   body:not(.admin-page) main.ai-page-fullscreen{
     position:fixed;
-    inset:calc(var(--ai-visible-viewport-top, 0px) + 66px) 0 auto;
-    height:calc(var(--ai-visible-viewport-height, 100svh) - 66px);
+    inset:66px 0 0;
+    height:auto;
     margin-top:0;
   }
   body:not(.admin-page) main.ai-page-fullscreen .page-inner{gap:8px;padding:10px 12px}
