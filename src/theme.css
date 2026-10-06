@@ -498,3 +498,75 @@ html[data-theme="light"] .chat-signin p { color:#667085; }
 @media(prefers-reduced-motion:reduce) {
   .authenticated-menu,.global-theme-toggle,.chat-fullscreen * { transition-duration:.01ms!important; animation-duration:.01ms!important; }
 }
+
+.chat-fullscreen {
+  -webkit-text-size-adjust:100%;
+  text-size-adjust:100%;
+  font-size:14px;
+}
+
+.chat-fullscreen .chat-welcome h2,
+.chat-fullscreen .chat-empty h3 { font-size:22px; }
+
+.chat-signin h1 { font-size:26px; }
+
+.chat-fullscreen .conversation-search input,
+.chat-fullscreen .chat-composer>input:first-child,
+.chat-fullscreen .chat-settings-overlay>label select,
+.chat-fullscreen .chat-settings select {
+  font-size:16px;
+}
+
+.chat-fullscreen .conversation-search input::placeholder,
+.chat-fullscreen .chat-composer>input:first-child::placeholder {
+  font-size:16px;
+}
+
+.wallpaper-light-grid .chat-conversation,
+.wallpaper-light-circuit .chat-conversation,
+.wallpaper-solid-white .chat-conversation {
+  color:#202b3d;
+}
+
+.wallpaper-solid-white .chat-conversation { background:#fff; }
+
+.wallpaper-light-grid .chat-message-bubble,
+.wallpaper-light-circuit .chat-message-bubble,
+.wallpaper-solid-white .chat-message-bubble {
+  border-color:rgba(23,34,54,.13);
+  background:#fff;
+  color:#202b3d;
+  box-shadow:0 5px 18px rgba(31,41,55,.1);
+}
+
+.wallpaper-light-grid .chat-message-row.outgoing .chat-message-bubble,
+.wallpaper-light-circuit .chat-message-row.outgoing .chat-message-bubble,
+.wallpaper-solid-white .chat-message-row.outgoing .chat-message-bubble {
+  border-color:rgba(100,77,171,.22);
+  background:#eee9fc;
+  color:#202b3d;
+}
+
+.wallpaper-light-grid .chat-message-bubble footer,
+.wallpaper-light-circuit .chat-message-bubble footer,
+.wallpaper-solid-white .chat-message-bubble footer {
+  color:#526071;
+}
+
+.wallpaper-light-grid .chat-empty,
+.wallpaper-light-circuit .chat-empty,
+.wallpaper-solid-white .chat-empty { color:#344054; }
+
+.wallpaper-light-grid .chat-empty h3,
+.wallpaper-light-circuit .chat-empty h3,
+.wallpaper-solid-white .chat-empty h3 { color:#182230; }
+
+.wallpaper-light-grid .chat-empty p,
+.wallpaper-light-circuit .chat-empty p,
+.wallpaper-solid-white .chat-empty p { color:#526071; }
+
+@media(max-width:700px) {
+  .chat-brand { font-size:12px; }
+  .chat-top-link { font-size:10px; }
+  .chat-composer>input:first-child { font-size:16px!important; }
+}

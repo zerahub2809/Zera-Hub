@@ -297,7 +297,7 @@ export function createPlatformRouter({ auth, load, save, publicUser, notifyUser 
     const theme = req.body?.theme;
     const wallpaperImage = req.body?.chatWallpaperImage;
     const notificationSound = req.body?.notificationSound;
-    if (wallpaper !== undefined && !['dark-grid', 'deep-space', 'circuit', 'aurora', 'light-grid', 'light-circuit', 'solid-midnight', 'solid-slate', 'gradient-violet', 'gradient-ocean', 'custom'].includes(wallpaper)) {
+    if (wallpaper !== undefined && !['dark-grid', 'deep-space', 'circuit', 'aurora', 'light-grid', 'light-circuit', 'solid-white', 'solid-midnight', 'solid-slate', 'gradient-violet', 'gradient-ocean', 'custom'].includes(wallpaper)) {
       return res.status(400).json({ error: 'Choose a supported chat wallpaper' });
     }
     if (theme !== undefined && !['light', 'dark'].includes(theme)) return res.status(400).json({ error: 'Theme must be light or dark' });
