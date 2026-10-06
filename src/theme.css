@@ -2508,16 +2508,17 @@ html[data-theme] body .chat-fullscreen .chat-message-bubble footer {
 
 @media(max-width:700px) {
   .chat-fullscreen .chat-composer {
-    flex-basis: calc(62px + env(safe-area-inset-bottom));
+    flex-basis: 62px;
     flex-shrink: 0;
-    height: calc(62px + env(safe-area-inset-bottom));
-    min-height: calc(62px + env(safe-area-inset-bottom));
-    max-height: calc(62px + env(safe-area-inset-bottom));
-    padding: 8px 9px calc(8px + env(safe-area-inset-bottom));
+    height: 62px;
+    min-height: 62px;
+    max-height: 62px;
+    padding: 8px 9px;
     gap: 6px;
   }
 
   .chat-fullscreen .chat-composer > textarea:first-child {
+    flex-shrink: 1;
     height: 43px;
     min-height: 43px;
     max-height: 43px;
@@ -2525,5 +2526,18 @@ html[data-theme] body .chat-fullscreen .chat-message-bubble footer {
     min-block-size: 43px;
     max-block-size: 43px;
     padding: 8px 11px;
+  }
+
+  .chat-fullscreen .chat-composer > .chat-voice-button,
+  .chat-fullscreen .chat-composer > .chat-attach-button,
+  .chat-fullscreen .chat-composer > .chat-send-button {
+    box-sizing: border-box;
+    flex: 0 0 39px;
+    width: 39px;
+    min-width: 39px;
+    max-width: 39px;
+    height: 39px;
+    min-height: 39px;
+    max-height: 39px;
   }
 }
