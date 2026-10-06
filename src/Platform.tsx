@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useLayoutEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, BriefcaseBusiness, Check, ExternalLink, Flag, MapPin, Plus, Search, Send, Upload, X } from 'lucide-react';
 import './platform.css';
@@ -118,6 +118,10 @@ export function DeveloperDirectory({ user, onAuth }: { user: Account | null; onA
   const [actionError, setActionError] = useState('');
   const [actionNotice, setActionNotice] = useState('');
   const [actionBusy, setActionBusy] = useState(false);
+
+  useLayoutEffect(() => {
+    if (profileId) window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [profileId]);
 
   useEffect(() => {
     let active = true;

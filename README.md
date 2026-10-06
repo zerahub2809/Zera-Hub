@@ -50,6 +50,9 @@ Public discovery and detail endpoints:
 
 Authenticated endpoints include `GET`/`PATCH /api/platform/profile`, `GET /api/platform/connections`, `POST`/`DELETE /api/platform/connections/:userId`, `POST /api/platform/jobs`, `GET /api/platform/jobs/mine`, `PATCH /api/platform/jobs/:id`, and `POST /api/platform/jobs/:id/applications`. Applicants can retrieve their own applications from `GET /api/platform/applications/mine`. Only the job owner can use `GET /api/platform/jobs/:id/applications` and `PATCH /api/platform/applications/:id` to review applicants and change status. Salary ranges use an optional three-letter currency code and are not tied to a particular country.
 
+## Messaging
+Private conversations support text, image, and voice messages. Voice clips are limited to 180 seconds and 12 MB. Typing/recording presence and message-seen updates use authenticated Socket.IO events; messages are only marked seen when the recipient has the conversation open in a visible tab.
+
 ## Admin
 Private route: `/admindev2809`
 
@@ -62,5 +65,10 @@ For production, configure the backend's `CLIENT_URL` to the frontend origin. The
 ## Trust & Safety
 The backend uses a layered rule-based risk detector for credential requests, crypto payment scams, unrealistic financial claims, suspicious/shortened links, link bursts, repetitive patterns and excessive capitalization. Medium-risk community content is held for admin review; high/critical items are blocked and logged. Repeated signals can cause a temporary—not permanent—restriction. Production deployment should still add a stronger moderation pipeline, human review, appeals, link scanning and continuous monitoring.
 
+## Production data persistence
+The Render service mounts a 1 GB persistent disk at `/var/data`; `DATA_DIR` stores both the application JSON state and uploaded media there. This keeps profiles, messages, notifications, preferences, admin configuration, and user-uploaded files across builds, deployments, and restarts. MongoDB remains the primary state store when `MONGODB_URI` connects successfully; the mounted disk is the durable local store and mirror. The server copies existing `server/data/db.json` and files from `server/uploads` into the persistent directory when those legacy files are present, without overwriting files already on the disk. When both MongoDB and local state contain records, startup merges them by record ID and gives the MongoDB version precedence for duplicate IDs.
+
+Before the first disk-backed deployment, preserve any existing `server/data/db.json` and files from the live service's ephemeral `server/uploads` directory while they are still available; place them at `/var/data/db.json` and `/var/data/uploads` respectively. Startup also attempts this copy when the legacy paths remain accessible, but a fresh deployment cannot recover media already lost from an ephemeral filesystem. Keep the Render disk attached to this service and back it up; do not delete or recreate it as part of routine deploys. Review Render's current plan and pricing before deployment because persistent disks may incur recurring storage charges. Local development defaults to `server/data` and `server/uploads` unless `DATA_DIR` is set.
+
 ## Important production note
-This is a working foundation, not a claim that every enterprise feature is production-hardened. Before public launch, add a managed database, HTTPS, secure cookies/session rotation, MFA for admins, stronger moderation, file scanning, object storage, background jobs, backups, observability and a formal security review.
+This is a working foundation, not a claim that every enterprise feature is production-hardened. Before public launch, add HTTPS, secure cookies/session rotation, MFA for admins, stronger moderation, file scanning, backups, observability, and a formal security review.

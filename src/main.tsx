@@ -2,7 +2,8 @@ import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {AnimatePresence,motion,useReducedMotion} from 'framer-motion';
 import {BrowserRouter,Routes,Route,Link,NavLink,useNavigate,useLocation} from 'react-router-dom';
-import {ArrowRight,ArrowUpRight,BrainCircuit,BriefcaseBusiness,Code2,Compass,FileCode2,FolderKanban,Globe2,Home as HomeIcon,Layers3,Mail,Menu,MessageCircle,Network,Plus,Search,Send,ShieldCheck,Sparkles,Terminal,Users,Workflow,X,Instagram,Facebook,Twitter,Settings,LogOut,UserRound,AtSign,Lock,CheckCircle2,AlertTriangle,Upload,BarChart3,Ban,RefreshCw,Bell,ImagePlus,Check,Sun,Moon,ChevronLeft} from 'lucide-react';
+import {io, type Socket} from 'socket.io-client';
+import {ArrowRight,ArrowUpRight,BrainCircuit,BriefcaseBusiness,Code2,Compass,FileCode2,FolderKanban,Globe2,Home as HomeIcon,Layers3,Mail,Menu,MessageCircle,Network,Plus,Search,Send,ShieldCheck,Sparkles,Terminal,Users,Workflow,X,Instagram,Facebook,Twitter,Settings,LogOut,UserRound,AtSign,Lock,CheckCircle2,AlertTriangle,Upload,BarChart3,Ban,RefreshCw,Bell,ImagePlus,Check,Sun,Moon,ChevronLeft,Mic} from 'lucide-react';
 import './index.css';
 import './visual-refresh.css';
 import AdminControlCenter from './AdminControlCenter';
@@ -18,7 +19,10 @@ const social={facebook:'https://www.facebook.com/share/1BDT7JfvXm/',instagram:'h
 function setPageMetadata(title:string,description:string){document.title=`${title} · ZERA HUB`;let meta=document.querySelector<HTMLMetaElement>('meta[name="description"]');if(!meta){meta=document.createElement('meta');meta.name='description';document.head.append(meta);}meta.content=description;}
 
 type User={id:string;name:string;username:string;role:string;accountType:string;bio?:string;skills?:string[];avatar?:string;status:string;verified?:boolean;online?:boolean;lastSeenAt?:string|null};
-type ChatMessage={id:string;fromUserId:string;toUserId:string;body:string;imageUrl?:string;createdAt:string;sentAt?:string;deliveredAt?:string|null;readAt?:string|null};
+type ChatMessage={id:string;fromUserId:string;toUserId:string;body:string;imageUrl?:string;voiceUrl?:string;durationSeconds?:number;createdAt:string;sentAt?:string;deliveredAt?:string|null;readAt?:string|null};
+type ChatPresenceStatus='typing'|'recording'|null;
+type ChatStatusEvent={fromUserId:string;status:ChatPresenceStatus};
+type MessageReadEvent={readerId:string;messageIds:string[];readAt:string};
 type PlatformNotification={id:string;userId:string;type:string;title:string;body:string;data?:Record<string,unknown>;actor?:User|null;createdAt:string;readAt:string|null};
 type PushPublicKeyResponse={publicKey:string|null};
 type ConnectionListResponse={connections:Array<{id:string;user:User;status:'pending'|'accepted'|'rejected';direction:'incoming'|'outgoing'|'connected'}>};
@@ -33,7 +37,80 @@ function decodeVapidKey(value:string){const padding='='.repeat((4-value.length%4
 function UserAvatar({user,className=''}:{user:User;className?:string}){return <span className={`inner-avatar ${className}`}>{user.avatar?<img src={user.avatar.startsWith('http')?user.avatar:`${API}${user.avatar}`} alt=""/>:user.name?.slice(0,1).toUpperCase()}<i className={user.online?'online':'offline'}/></span>}
 function VerificationBadge(){return <span className="verification-badge" title="Verified profile" aria-label="Verified profile"><Check size={11}/></span>}
 function formatLastSeen(user:User){if(user.online)return 'Online';if(!user.lastSeenAt)return 'Offline';const elapsed=Date.now()-Date.parse(user.lastSeenAt);if(elapsed<3600000)return `Last seen ${Math.max(1,Math.floor(elapsed/60000))}m ago`;if(elapsed<86400000)return `Last seen ${Math.floor(elapsed/3600000)}h ago`;return `Last seen ${new Date(user.lastSeenAt).toLocaleDateString()}`}
+function voiceUrl(url:string){return url.startsWith('http')?url:`${API}${url}`}
+function formatDuration(seconds:number){const safe=Math.max(0,Math.floor(seconds));return `${Math.floor(safe/60)}:${String(safe%60).padStart(2,'0')}`}
+function VoiceMessage({url,durationSeconds}:{url:string;durationSeconds?:number}){return <div className="chat-voice-message"><audio controls preload="metadata" src={voiceUrl(url)} aria-label="Voice message"/>{durationSeconds!==undefined&&<span>{formatDuration(durationSeconds)}</span>}</div>}
 function PresenceHeartbeat(){useEffect(()=>{const heartbeat=()=>{if(localStorage.getItem('zera_token'))api('/api/presence',{method:'POST'}).catch(error=>console.error('Could not update account presence:',error))};heartbeat();const timer=window.setInterval(heartbeat,45000);return()=>window.clearInterval(timer)},[]);return null}
+function NotificationSoundMonitor({user}:{user:User|null}){
+  const audioContextRef=useRef<AudioContext|null>(null);
+  const soundEnabledRef=useRef(localStorage.getItem('zera_notification_sound')==='on');
+  const knownNotifications=useRef(new Set<string>());
+
+  useEffect(()=>{
+    if(!user)return;
+    let active=true;
+    let initialized=false;
+    const syncSoundPreference=()=>{
+      soundEnabledRef.current=localStorage.getItem('zera_notification_sound')==='on';
+      if(!soundEnabledRef.current||!('AudioContext'in window))return;
+      try{
+        const context=audioContextRef.current||new AudioContext();
+        audioContextRef.current=context;
+        if(context.state==='suspended')void context.resume().catch(error=>console.error('Could not unlock notification audio:',error));
+      }catch(error){console.error('Could not initialize notification audio:',error)}
+    };
+    const playSound=()=>{
+      const context=audioContextRef.current;
+      if(!soundEnabledRef.current||!context)return;
+      const play=()=>{
+        const oscillator=context.createOscillator();
+        const gain=context.createGain();
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        gain.gain.setValueAtTime(.035,context.currentTime);
+        gain.gain.exponentialRampToValueAtTime(.001,context.currentTime+.18);
+        oscillator.frequency.value=740;
+        oscillator.start();
+        oscillator.stop(context.currentTime+.18);
+      };
+      if(context.state==='running')play();
+      else void context.resume().then(()=>{if(soundEnabledRef.current)play()}).catch(error=>console.error('Could not play notification sound:',error));
+    };
+    const refresh=()=>apiTyped<PlatformNotification[]>('/api/notifications').then(items=>{
+      if(!active)return;
+      if(!initialized){
+        knownNotifications.current=new Set(items.map(item=>item.id));
+        initialized=true;
+        return;
+      }
+      const received=items.filter(item=>!knownNotifications.current.has(item.id));
+      items.forEach(item=>knownNotifications.current.add(item.id));
+      received.forEach(item=>{
+        if(document.hidden&&typeof Notification!=='undefined'&&Notification.permission==='granted')new Notification(item.title,{body:item.body,icon:'/favicon.ico'});
+        playSound();
+      });
+    }).catch(error=>console.error('Could not check incoming notifications:',error));
+    const timer=window.setInterval(refresh,12000);
+    window.addEventListener('pointerdown',syncSoundPreference);
+    window.addEventListener('keydown',syncSoundPreference);
+    window.addEventListener('storage',syncSoundPreference);
+    window.addEventListener('zera-notification-sound-change',syncSoundPreference);
+    syncSoundPreference();
+    void refresh();
+    return()=>{
+      active=false;
+      window.clearInterval(timer);
+      window.removeEventListener('pointerdown',syncSoundPreference);
+      window.removeEventListener('keydown',syncSoundPreference);
+      window.removeEventListener('storage',syncSoundPreference);
+      window.removeEventListener('zera-notification-sound-change',syncSoundPreference);
+      if(audioContextRef.current){void audioContextRef.current.close().catch(error=>console.error('Could not close notification audio:',error));audioContextRef.current=null}
+    };
+  },[user?.id]);
+
+  useEffect(()=>()=>{if(audioContextRef.current){void audioContextRef.current.close().catch(error=>console.error('Could not close notification audio:',error));audioContextRef.current=null}},[]);
+  return null;
+}
 
 function App(){
   const [auth,setAuth]=useState<'developer'|'hire'|'signin'|null>(null);
@@ -45,6 +122,7 @@ function App(){
   const location=useLocation();
   const isAdminRoute=location.pathname==='/admindev2809';
   const isMessagesRoute=location.pathname==='/messages';
+  const isAIPage=location.pathname==='/ai';
 
   const syncUser=()=>{
     const raw=localStorage.getItem('zera_user');
@@ -72,7 +150,7 @@ function App(){
   useEffect(()=>{
     if(!user)return;
     apiTyped<ChatPreferencesResponse>('/api/platform/profile/preferences')
-      .then(preferences=>{if(preferences.theme==='light'||preferences.theme==='dark')applyTheme(preferences.theme)})
+      .then(preferences=>{if(preferences.theme==='light'||preferences.theme==='dark')applyTheme(preferences.theme);if(typeof preferences.notificationSound==='boolean'){localStorage.setItem('zera_notification_sound',preferences.notificationSound?'on':'off');window.dispatchEvent(new Event('zera-notification-sound-change'))}})
       .catch(error=>console.error('Could not load account theme preference:',error));
   },[user]);
 
@@ -84,6 +162,7 @@ function App(){
 
   return <>
     <PresenceHeartbeat/>
+    <NotificationSoundMonitor user={user}/>
     {!isAdminRoute&&!isMessagesRoute&&<Header site={site} user={user} onAuth={setAuth}/>}
     <Routes>
       <Route path="/" element={<Home onAuth={setAuth} onAI={()=>setAI(true)}/>}/>
@@ -103,7 +182,7 @@ function App(){
       <Route path="/admindev2809" element={<AdminControlCenter/>}/>
       <Route path="*" element={<NotFound/>}/>
     </Routes>
-    {!isAdminRoute&&!isMessagesRoute&&<Footer site={site}/>}
+    {!isAdminRoute&&!isMessagesRoute&&!isAIPage&&<Footer site={site}/>}
     <AnimatePresence>{auth&&<AuthModal type={auth} site={site} onClose={()=>setAuth(null)} onSignedIn={account=>{setUser(account);setAuth(null);window.dispatchEvent(new Event('zera-authenticated'))}}/>}</AnimatePresence>
     {ai&&<ZeraAIWorkspace user={user} site={site} onAuth={setAuth} isModal initialPrompt={aiPrompt} initialContext={aiContext} onClose={()=>{setAI(false);setAIPrompt('');setAIContext('')}}/>}
   </>;
@@ -319,32 +398,235 @@ function Messages({user}:{user:User|null}){
   const [settingsOpen,setSettingsOpen]=useState(false);
   const [image,setImage]=useState<File|null>(null);
   const [imagePreview,setImagePreview]=useState('');
+  const [voiceDraft,setVoiceDraft]=useState<Blob|null>(null);
+  const [voiceDraftUrl,setVoiceDraftUrl]=useState('');
+  const [voiceDraftDuration,setVoiceDraftDuration]=useState(0);
+  const [recording,setRecording]=useState(false);
+  const [recordingSeconds,setRecordingSeconds]=useState(0);
+  const [recordingError,setRecordingError]=useState('');
+  const [remoteStatus,setRemoteStatus]=useState<ChatPresenceStatus>(null);
   const imageRef=useRef<HTMLInputElement>(null);
   const wallpaperRef=useRef<HTMLInputElement>(null);
   const messagesRef=useRef<HTMLDivElement>(null);
-  const knownNotifications=useRef(new Set<string>());
+  const socketRef=useRef<Socket|null>(null);
+  const selectedRef=useRef<User|null>(selected);
+  const recorderRef=useRef<MediaRecorder|null>(null);
+  const streamRef=useRef<MediaStream|null>(null);
+  const chunksRef=useRef<Blob[]>([]);
+  const cancelRecordingRef=useRef(false);
+  const recordingStartedAtRef=useRef(0);
+  const recordingTimerRef=useRef<number|undefined>(undefined);
+  const typingTimerRef=useRef<number|undefined>(undefined);
   const navigate=useNavigate();
+  selectedRef.current=selected;
   const refreshConnections=()=>api('/api/platform/connections').then((result:ConnectionListResponse)=>{const accepted=result.connections.filter(entry=>entry.status==='accepted').map(entry=>entry.user).filter(account=>account.id!==user?.id);setUsers(accepted);setSelected(current=>current?accepted.find(account=>account.id===current.id)||current:current)});
-  useEffect(()=>{if(!user)return;let alive=true;Promise.all([api('/api/platform/connections'),api('/api/notifications'),api('/api/platform/profile/preferences')]).then(([connectionResult,items,prefs]:[ConnectionListResponse,PlatformNotification[],ChatPreferencesResponse])=>{if(!alive)return;setUsers(connectionResult.connections.filter(entry=>entry.status==='accepted').map(entry=>entry.user).filter(account=>account.id!==user.id));setNotifications(items);knownNotifications.current=new Set(items.map(item=>item.id));setWallpaper(prefs.chatWallpaper||'dark-grid');setWallpaperImage(prefs.chatWallpaperImage||'');if(typeof prefs.notificationSound==='boolean'){setSoundOn(prefs.notificationSound);localStorage.setItem('zera_notification_sound',prefs.notificationSound?'on':'off')}const queryUser=new URLSearchParams(window.location.search).get('user');if(queryUser){const target=connectionResult.connections.find(entry=>entry.status==='accepted'&&entry.user.id===queryUser)?.user;if(target)setSelected(target)}}).catch((error:Error)=>setLoadError(error.message));const presence=()=>api('/api/presence',{method:'POST'}).catch(error=>console.error('Could not update account presence:',error));presence();const connectionsTimer=window.setInterval(()=>{refreshConnections().catch(error=>console.error('Could not refresh connected users:',error))},30000);const presenceTimer=window.setInterval(presence,45000);return()=>{alive=false;window.clearInterval(connectionsTimer);window.clearInterval(presenceTimer)}},[user]);
-  useEffect(()=>{if(!selected)return;let active=true;api('/api/notifications/read',{method:'PATCH',body:JSON.stringify({fromUserId:selected.id})}).then(()=>setNotifications(items=>items.map(item=>item.type==='message'&&item.data?.fromUserId===selected.id?{...item,readAt:item.readAt||new Date().toISOString()}:item))).catch(error=>console.error('Could not mark conversation notifications read:',error));const refresh=()=>api(`/api/messages/${selected.id}`).then((items:ChatMessage[])=>{if(active)setMessages(items)}).catch((error:Error)=>setLoadError(error.message));refresh();const timer=window.setInterval(refresh,4000);return()=>{active=false;window.clearInterval(timer)}},[selected]);
-  useEffect(()=>{if(!user)return;const refresh=()=>api('/api/notifications').then((items:PlatformNotification[])=>{const newest=items.find(item=>!item.readAt&&!knownNotifications.current.has(item.id));items.forEach(item=>knownNotifications.current.add(item.id));if(newest){if(document.hidden&&typeof Notification!=='undefined'&&Notification.permission==='granted')new Notification(newest.title,{body:newest.body,icon:'/favicon.ico'});if(document.hidden&&soundOn&&'AudioContext'in window){try{const context=new AudioContext();const oscillator=context.createOscillator();const gain=context.createGain();oscillator.connect(gain);gain.connect(context.destination);gain.gain.value=.035;oscillator.frequency.value=740;oscillator.start();oscillator.stop(context.currentTime+.12);oscillator.onended=()=>context.close()}catch(error){console.error('Could not play notification sound:',error)}}}setNotifications(items)}).catch((error:Error)=>setLoadError(error.message));const timer=window.setInterval(refresh,12000);return()=>window.clearInterval(timer)},[user,soundOn]);
+  useEffect(()=>{if(!user)return;let alive=true;Promise.all([api('/api/platform/connections'),api('/api/notifications'),api('/api/platform/profile/preferences')]).then(([connectionResult,items,prefs]:[ConnectionListResponse,PlatformNotification[],ChatPreferencesResponse])=>{if(!alive)return;setUsers(connectionResult.connections.filter(entry=>entry.status==='accepted').map(entry=>entry.user).filter(account=>account.id!==user.id));setNotifications(items);setWallpaper(prefs.chatWallpaper||'dark-grid');setWallpaperImage(prefs.chatWallpaperImage||'');if(typeof prefs.notificationSound==='boolean'){setSoundOn(prefs.notificationSound);localStorage.setItem('zera_notification_sound',prefs.notificationSound?'on':'off');window.dispatchEvent(new Event('zera-notification-sound-change'))}const queryUser=new URLSearchParams(window.location.search).get('user');if(queryUser){const target=connectionResult.connections.find(entry=>entry.status==='accepted'&&entry.user.id===queryUser)?.user;if(target)setSelected(target)}}).catch((error:Error)=>setLoadError(error.message));const presence=()=>api('/api/presence',{method:'POST'}).catch(error=>console.error('Could not update account presence:',error));presence();const connectionsTimer=window.setInterval(()=>{refreshConnections().catch(error=>console.error('Could not refresh connected users:',error))},30000);const presenceTimer=window.setInterval(presence,45000);return()=>{alive=false;window.clearInterval(connectionsTimer);window.clearInterval(presenceTimer)}},[user]);
+  useEffect(()=>{
+    if(!user)return;
+    const socket=io(API,{auth:{token:localStorage.getItem('zera_token')||''}});
+    socketRef.current=socket;
+    socket.on('message:new',(message:ChatMessage)=>{
+      const activeConversation=selectedRef.current;
+      if(!activeConversation||![message.fromUserId,message.toUserId].includes(activeConversation.id))return;
+      setMessages(current=>current.some(item=>item.id===message.id)?current.map(item=>item.id===message.id?{...item,...message}:item):[...current,message]);
+      if(message.toUserId===user.id&&document.visibilityState==='visible'){
+        apiTyped<{messageIds:string[];readAt:string}>(`/api/messages/${message.fromUserId}/read`,{method:'PATCH'})
+          .then(({messageIds,readAt})=>setMessages(current=>current.map(item=>messageIds.includes(item.id)?{...item,readAt}:item)))
+          .catch(error=>console.error('Could not mark incoming message as seen:',error));
+      }
+    });
+    socket.on('message:read',(event:MessageReadEvent)=>{
+      if(event.readerId===selectedRef.current?.id)setMessages(current=>current.map(item=>event.messageIds.includes(item.id)?{...item,readAt:event.readAt}:item));
+    });
+    socket.on('chat:status',(event:ChatStatusEvent)=>{
+      if(event.fromUserId===selectedRef.current?.id)setRemoteStatus(event.status);
+    });
+    const realtimeError='Real-time chat updates are unavailable. Messages will continue to refresh periodically.';
+    socket.on('connect_error',(error)=>{console.error('Could not connect to real-time chat:',error);setLoadError(realtimeError)});
+    socket.on('connect',()=>setLoadError(current=>current===realtimeError?'':current));
+    socket.on('disconnect',()=>setRemoteStatus(null));
+    return()=>{
+      socket.emit('chat:status',{toUserId:selectedRef.current?.id,status:null});
+      socket.disconnect();
+      if(socketRef.current===socket)socketRef.current=null;
+      setRemoteStatus(null);
+    };
+  },[user?.id]);
+  useEffect(()=>{
+    if(!selected)return;
+    const selectedId=selected.id;
+    let active=true;
+    const markConversationNotificationsRead=()=>{
+      if(document.visibilityState!=='visible')return;
+      api('/api/notifications/read',{method:'PATCH',body:JSON.stringify({fromUserId:selectedId})})
+        .then(()=>setNotifications(items=>items.map(item=>item.type==='message'&&item.data?.fromUserId===selectedId?{...item,readAt:item.readAt||new Date().toISOString()}:item)))
+        .catch(error=>console.error('Could not mark conversation notifications read:',error));
+    };
+    const refresh=async()=>{
+      try{
+        const items:ChatMessage[]=await apiTyped<ChatMessage[]>(`/api/messages/${selectedId}`);
+        if(!active)return;
+        const unread=items.some(item=>item.toUserId===user?.id&&item.fromUserId===selectedId&&!item.readAt);
+        if(unread&&document.visibilityState==='visible'){
+          const result=await apiTyped<{messageIds:string[];readAt:string}>(`/api/messages/${selectedId}/read`,{method:'PATCH'});
+          const seenIds=new Set(result.messageIds);
+          if(active)setMessages(items.map(item=>seenIds.has(item.id)?{...item,readAt:result.readAt}:item));
+          markConversationNotificationsRead();
+          return;
+        }
+        if(active)setMessages(items);
+      }catch(error){if(error instanceof Error)setLoadError(error.message)}
+    };
+    const onVisible=()=>{if(document.visibilityState==='visible'){void refresh();markConversationNotificationsRead()}};
+    void refresh();
+    markConversationNotificationsRead();
+    const timer=window.setInterval(()=>void refresh(),4000);
+    document.addEventListener('visibilitychange',onVisible);
+    return()=>{
+      active=false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange',onVisible);
+      socketRef.current?.emit('chat:status',{toUserId:selectedId,status:null});
+      if(recorderRef.current?.state==='recording'){
+        cancelRecordingRef.current=true;
+        recorderRef.current.stop();
+      }
+    };
+  },[selected?.id,user?.id]);
+  useEffect(()=>{
+    setRemoteStatus(null);
+    setBody('');
+    setImage(null);
+    setVoiceDraft(null);
+    setVoiceDraftDuration(0);
+    setRecordingError('');
+  },[selected?.id]);
+  useEffect(()=>{if(!user)return;const refresh=()=>api('/api/notifications').then((items:PlatformNotification[])=>setNotifications(items)).catch((error:Error)=>setLoadError(error.message));const timer=window.setInterval(refresh,12000);return()=>window.clearInterval(timer)},[user?.id]);
   useEffect(()=>{if(!image){setImagePreview('');return}const url=URL.createObjectURL(image);setImagePreview(url);return()=>URL.revokeObjectURL(url)},[image]);
+  useEffect(()=>{if(!voiceDraft){setVoiceDraftUrl('');return}const url=URL.createObjectURL(voiceDraft);setVoiceDraftUrl(url);return()=>URL.revokeObjectURL(url)},[voiceDraft]);
   useEffect(()=>{if(messagesRef.current)messagesRef.current.scrollTop=messagesRef.current.scrollHeight},[messages,selected]);
+  useEffect(()=>()=>{if(recordingTimerRef.current!==undefined)window.clearInterval(recordingTimerRef.current);streamRef.current?.getTracks().forEach(track=>track.stop());},[]);
   useEffect(()=>{const observer=new MutationObserver(()=>setTheme(document.documentElement.dataset.theme==='light'?'light':'dark'));observer.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});return()=>observer.disconnect()},[]);
   const enableNotifications=async()=>{setPushNotice('');const secure=window.isSecureContext||location.hostname==='localhost';const ua=navigator.userAgent;const ios=/iPad|iPhone|iPod/.test(ua);const standalone=window.matchMedia('(display-mode: standalone)').matches||Boolean((navigator as Navigator&{standalone?:boolean}).standalone);if(!secure||!('serviceWorker'in navigator)||!('PushManager'in window)||typeof Notification==='undefined'||(ios&&!standalone)){setPushNotice(ios&&!standalone?'Browser push is available on supported iPhones and iPads when ZERA HUB is installed to the Home Screen. In-app notifications will continue to work.':'Browser or device push notifications are unavailable in this environment. In-app notifications will continue to work.');return}try{const key=await api('/api/push/public-key') as PushPublicKeyResponse;if(!key.publicKey){setPushNotice('Device push is not configured on this server. In-app notifications remain available.');return}let permission=Notification.permission;if(permission==='default')permission=await Notification.requestPermission();if(permission!=='granted'){setPushNotice(permission==='denied'?'Browser notifications are blocked in your browser settings. In-app notifications remain available.':'Notification permission was not granted. In-app notifications remain available.');return}const registration=await navigator.serviceWorker.register('/service-worker.js');const existing=await registration.pushManager.getSubscription();const subscription=existing||await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:decodeVapidKey(key.publicKey)});await api('/api/push/subscribe',{method:'POST',body:JSON.stringify({subscription})});setPushNotice('Browser notifications are enabled on this device.')}catch(error){console.error('Could not enable browser notifications:',error);setPushNotice('Browser push could not be enabled in this environment. In-app notifications remain available.')}}
-  const send=async()=>{if(!selected||(!body.trim()&&!image))return;try{const outgoing:ChatMessage[]=[];if(image){if(!['image/jpeg','image/png','image/gif','image/webp','image/avif'].includes(image.type)||image.size>2*1024*1024)throw new Error('Choose a supported image smaller than 2 MB.');const form=new FormData();form.append('image',image);outgoing.push(await apiUpload<ChatMessage>(`/api/messages/${selected.id}/image`,form))}if(body.trim())outgoing.push(await apiTyped<ChatMessage>('/api/messages',{method:'POST',body:JSON.stringify({toUserId:selected.id,body})}));setMessages(current=>[...current,...outgoing]);setBody('');setImage(null)}catch(error){setLoadError(error instanceof Error?error.message:'Message could not be sent.')}}
+  const clearChatStatus=(userId=selected?.id)=>{if(userId)socketRef.current?.emit('chat:status',{toUserId:userId,status:null});if(typingTimerRef.current!==undefined)window.clearTimeout(typingTimerRef.current)};
+  const changeMessageBody=(value:string)=>{
+    setBody(value);
+    if(!selected)return;
+    if(!value.trim()){clearChatStatus();return}
+    socketRef.current?.emit('chat:status',{toUserId:selected.id,status:'typing'});
+    if(typingTimerRef.current!==undefined)window.clearTimeout(typingTimerRef.current);
+    typingTimerRef.current=window.setTimeout(()=>clearChatStatus(selected.id),1800);
+  };
+  const stopRecording=()=>{if(recorderRef.current?.state==='recording')recorderRef.current.stop()};
+  const cancelRecording=()=>{cancelRecordingRef.current=true;stopRecording()};
+  const startRecording=async()=>{
+    setRecordingError('');
+    if(!selected)return;
+    if(!navigator.mediaDevices?.getUserMedia||typeof MediaRecorder==='undefined'){
+      setRecordingError('Voice recording is not supported in this browser.');
+      return;
+    }
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+      streamRef.current=stream;
+      chunksRef.current=[];
+      cancelRecordingRef.current=false;
+      const preferredType=['audio/webm;codecs=opus','audio/mp4','audio/webm','audio/ogg;codecs=opus'].find(type=>MediaRecorder.isTypeSupported(type));
+      const recorder=new MediaRecorder(stream,preferredType?{mimeType:preferredType}:undefined);
+      recorderRef.current=recorder;
+      recordingStartedAtRef.current=Date.now();
+      setRecordingSeconds(0);
+      recorder.ondataavailable=event=>{if(event.data.size)chunksRef.current.push(event.data)};
+      recorder.onstop=()=>{
+        if(recordingTimerRef.current!==undefined)window.clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current=undefined;
+        stream.getTracks().forEach(track=>track.stop());
+        streamRef.current=null;
+        recorderRef.current=null;
+        setRecording(false);
+        clearChatStatus(selected.id);
+        if(cancelRecordingRef.current){chunksRef.current=[];return}
+        const blob=new Blob(chunksRef.current,{type:recorder.mimeType||'audio/webm'});
+        chunksRef.current=[];
+        const duration=Math.ceil((Date.now()-recordingStartedAtRef.current)/1000);
+        if(blob.size>12*1024*1024){setRecordingError('This voice message is too large. Record a shorter message and try again.');return}
+        if(!blob.size){setRecordingError('No audio was captured. Check microphone access and try again.');return}
+        setVoiceDraft(blob);
+        setVoiceDraftDuration(duration);
+      };
+      recorder.onerror=()=>setRecordingError('The recording stopped unexpectedly. Please try again.');
+      recorder.start(250);
+      setRecording(true);
+      socketRef.current?.emit('chat:status',{toUserId:selected.id,status:'recording'});
+      let lastStatusAt=Date.now();
+      recordingTimerRef.current=window.setInterval(()=>{
+        const elapsed=Math.floor((Date.now()-recordingStartedAtRef.current)/1000);
+        setRecordingSeconds(elapsed);
+        if(Date.now()-lastStatusAt>=2000){
+          socketRef.current?.emit('chat:status',{toUserId:selected.id,status:'recording'});
+          lastStatusAt=Date.now();
+        }
+        if(elapsed>=180)stopRecording();
+      },250);
+    }catch(error){
+      streamRef.current?.getTracks().forEach(track=>track.stop());
+      streamRef.current=null;
+      const denied=error instanceof Error&&['NotAllowedError','PermissionDeniedError'].includes(error.name);
+      setRecordingError(denied?'Microphone access was denied. Allow microphone access in your browser settings to record a voice message.':'Could not access the microphone. Check your device and browser permissions.');
+      clearChatStatus(selected.id);
+    }
+  };
+  const discardVoiceDraft=()=>{setVoiceDraft(null);setVoiceDraftDuration(0);setRecordingError('')};
+  const send=async()=>{if(!selected||(!body.trim()&&!image&&!voiceDraft))return;const recipientId=selected.id;try{const outgoing:ChatMessage[]=[];if(image){if(!['image/jpeg','image/png','image/gif','image/webp','image/avif'].includes(image.type)||image.size>2*1024*1024)throw new Error('Choose a supported image smaller than 2 MB.');const form=new FormData();form.append('image',image);outgoing.push(await apiUpload<ChatMessage>(`/api/messages/${recipientId}/image`,form))}if(voiceDraft){const form=new FormData();form.append('voice',voiceDraft,`voice-${Date.now()}`);form.append('durationSeconds',String(voiceDraftDuration));outgoing.push(await apiUpload<ChatMessage>(`/api/messages/${recipientId}/voice`,form))}if(body.trim())outgoing.push(await apiTyped<ChatMessage>('/api/messages',{method:'POST',body:JSON.stringify({toUserId:recipientId,body})}));setMessages(current=>[...current,...outgoing]);setBody('');setImage(null);discardVoiceDraft();clearChatStatus(recipientId)}catch(error){setLoadError(error instanceof Error?error.message:'Message could not be sent.')}}
   const saveWallpaper=async(value:string)=>{setWallpaper(value);try{await api('/api/platform/profile/preferences',{method:'PATCH',body:JSON.stringify({chatWallpaper:value})})}catch(error){setLoadError(error instanceof Error?error.message:'Wallpaper preference could not be saved.')}}
   const uploadWallpaper=async(file:File)=>{if(!['image/jpeg','image/png','image/gif','image/webp','image/avif'].includes(file.type)||file.size>2*1024*1024){setLoadError('Choose a supported wallpaper image smaller than 2 MB.');return}try{const form=new FormData();form.append('image',file);const result=await apiUpload<{chatWallpaper:string;chatWallpaperImage:string}>('/api/profile/chat-wallpaper',form);setWallpaper(result.chatWallpaper);setWallpaperImage(result.chatWallpaperImage);setLoadError('')}catch(error){setLoadError(error instanceof Error?error.message:'Wallpaper upload failed.')}}
-  const changeSound=async(enabled:boolean)=>{setSoundOn(enabled);localStorage.setItem('zera_notification_sound',enabled?'on':'off');try{await api('/api/platform/profile/preferences',{method:'PATCH',body:JSON.stringify({notificationSound:enabled})})}catch(error){console.error('Could not save notification sound preference:',error)}}
+  const changeSound=async(enabled:boolean)=>{setSoundOn(enabled);localStorage.setItem('zera_notification_sound',enabled?'on':'off');window.dispatchEvent(new Event('zera-notification-sound-change'));try{await api('/api/platform/profile/preferences',{method:'PATCH',body:JSON.stringify({notificationSound:enabled})})}catch(error){console.error('Could not save notification sound preference:',error)}}
   const markNotificationsRead=async()=>{try{await api('/api/notifications/read',{method:'PATCH',body:'{}'});setNotifications(items=>items.map(item=>({...item,readAt:item.readAt||new Date().toISOString()})))}catch(error){setLoadError(error instanceof Error?error.message:'Notifications could not be marked read.')}}
   const visibleUsers=users.filter(account=>`${account.name} ${account.username}`.toLowerCase().includes(search.toLowerCase()));
   const unreadFor=(accountId:string)=>notifications.filter(item=>!item.readAt&&item.type==='message'&&item.data?.fromUserId===accountId).length;
-  const wallpaperStyle=wallpaper==='custom'&&wallpaperImage?{backgroundImage:`linear-gradient(rgba(8,13,23,.78),rgba(8,13,23,.78)),url("${wallpaperImage.startsWith('http')?wallpaperImage:`${API}${wallpaperImage}`}")`}:undefined;
+  const wallpaperStyle=wallpaper==='custom'&&wallpaperImage?{backgroundImage:`linear-gradient(var(--chat-background-overlay),var(--chat-background-overlay)),url("${wallpaperImage.startsWith('http')?wallpaperImage:`${API}${wallpaperImage}`}")`}:undefined;
   if(!user)return <main className="chat-signin"><MessageCircle size={38}/><h1>Sign in to your conversations</h1><p>Your private chats are available after signing in and connecting with another member.</p><NavLink className="btn btn-primary" to="/">Back to ZERA HUB</NavLink></main>;
   return <><main className={`chat-fullscreen wallpaper-${wallpaper}${selected?' mobile-chat-open':''}`}>
     <header className="chat-topbar"><NavLink className="chat-brand" to="/app"><BrandMark site={null}/><b>ZERA HUB <span>MESSAGES</span></b></NavLink><div className="chat-top-actions"><NavLink to="/notifications" className="chat-top-link"><Bell size={17}/> Notifications {notifications.some(item=>!item.readAt)&&<i/>}</NavLink><NavLink to="/app" className="chat-top-link"><ChevronLeft size={17}/> Hub</NavLink></div></header>
     <div className="chat-workspace"><aside className="chat-conversations"><div className="chat-list-heading"><div><span>YOUR NETWORK</span><h1>Messages</h1></div><button className="chat-settings-button" onClick={()=>setSettingsOpen(value=>!value)} aria-expanded={settingsOpen} title="Chat settings"><Settings size={18}/></button></div><label className="conversation-search"><Search size={16}/><input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search conversations"/></label>{settingsOpen&&<section className="chat-settings chat-settings-sidebar"><h2>Chat settings</h2><p>Choose a wallpaper, adjust your sounds, or enable supported device notifications.</p></section>}<div className="conversation-list">{visibleUsers.map(account=>{const count=unreadFor(account.id);return <button className={`conversation-item ${selected?.id===account.id?'selected':''}`} onClick={()=>{setSelected(account);setSettingsOpen(false)}} key={account.id}><UserAvatar user={account}/><span className="conversation-copy"><b>{account.name}{account.verified&&<VerificationBadge/>}</b><small>{formatLastSeen(account)}</small></span>{count>0&&<i className="conversation-unread">{count}</i>}</button>})}{!users.length&&<div className="chat-list-empty"><Users size={22}/><b>No conversations yet</b><span>Only accepted connections appear here.</span><NavLink to="/developers">Discover developers</NavLink></div>}{users.length>0&&!visibleUsers.length&&<p className="chat-list-empty">No conversations match that search.</p>}</div></aside>
-      <section className="chat-conversation" style={wallpaperStyle}>{selected?<><header className="active-chat-header"><button className="chat-back-button" onClick={()=>setSelected(null)}><ChevronLeft size={20}/></button><UserAvatar user={selected}/><div className="active-chat-person"><h2>{selected.name}{selected.verified&&<VerificationBadge/>}</h2><span><i className={`platform-presence-dot ${selected.online?'online':''}`}/>{formatLastSeen(selected)}</span></div><Link to={`/developers/${encodeURIComponent(selected.id)}`} className="view-chat-profile">View profile <ArrowUpRight size={15}/></Link><button className="chat-settings-button active-settings" onClick={()=>setSettingsOpen(value=>!value)} title="Chat settings"><Settings size={18}/></button></header>{loadError&&<p className="chat-inline-error" role="alert">{loadError}</p>}<div className="chat-message-history" ref={messagesRef}>{messages.length?messages.map(message=><div className={`chat-message-row ${message.fromUserId===user.id?'outgoing':''}`} key={message.id}>{message.fromUserId!==user.id&&<UserAvatar user={selected} className="message-avatar"/>}<article className="chat-message-bubble">{message.body&&<p>{message.body}</p>}{message.imageUrl&&<img className="chat-image" src={message.imageUrl.startsWith('http')?message.imageUrl:`${API}${message.imageUrl}`} alt="Shared in chat"/>}<footer><time>{new Date(message.createdAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time>{message.fromUserId===user.id&&<span>{message.readAt?'Read':message.deliveredAt?'Delivered':'Sent'}</span>}</footer></article></div>):<div className="chat-empty"><MessageCircle size={34}/><h3>Start the conversation</h3><p>Say hello to {selected.name} and start building something together.</p></div>}</div>{imagePreview&&<div className="chat-image-preview"><img src={imagePreview} alt="Selected image preview"/><button onClick={()=>setImage(null)} aria-label="Remove image"><X size={15}/></button></div>}<form className="chat-composer" onSubmit={event=>{event.preventDefault();void send()}}><input value={body} onChange={event=>setBody(event.target.value)} placeholder="Write a message…" aria-label="Message"/><input ref={imageRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" hidden onChange={event=>setImage(event.target.files?.[0]||null)}/><button type="button" className="chat-attach-button" onClick={()=>imageRef.current?.click()} aria-label="Attach image"><ImagePlus size={19}/></button><button type="submit" className="chat-send-button" disabled={!body.trim()&&!image} aria-label="Send message"><Send size={18}/></button></form></>:<div className="chat-welcome"><MessageCircle size={42}/><h2>Your conversations, in one place.</h2><p>Select an accepted connection to open a private conversation. Chat is available only after a request is accepted.</p>{!users.length&&<NavLink to="/developers" className="btn btn-primary">Discover developers <ArrowUpRight size={15}/></NavLink>}</div>}</section></div>
+      <section className="chat-conversation" style={wallpaperStyle}>
+        {selected?<>
+          <header className="active-chat-header">
+            <button className="chat-back-button" onClick={()=>setSelected(null)}><ChevronLeft size={20}/></button>
+            <UserAvatar user={selected}/>
+            <div className="active-chat-person">
+              <h2>{selected.name}{selected.verified&&<VerificationBadge/>}</h2>
+              <span><i className={`platform-presence-dot ${selected.online?'online':''}`}/>{formatLastSeen(selected)}</span>
+            </div>
+            <Link to={`/developers/${encodeURIComponent(selected.id)}`} className="view-chat-profile">View profile <ArrowUpRight size={15}/></Link>
+            <button className="chat-settings-button active-settings" onClick={()=>setSettingsOpen(value=>!value)} title="Chat settings"><Settings size={18}/></button>
+          </header>
+          {remoteStatus&&<div className="chat-live-status" role="status" aria-live="polite">{remoteStatus==='recording'?'Recording voice…':'Typing…'}</div>}
+          {loadError&&<p className="chat-inline-error" role="alert">{loadError}</p>}
+          <div className="chat-message-history" ref={messagesRef}>
+            {messages.length?messages.map(message=><div className={`chat-message-row ${message.fromUserId===user.id?'outgoing':''}`} key={message.id}>
+              {message.fromUserId!==user.id&&<UserAvatar user={selected} className="message-avatar"/>}
+              <article className="chat-message-bubble">
+                {message.body&&<p>{message.body}</p>}
+                {message.imageUrl&&<img className="chat-image" src={message.imageUrl.startsWith('http')?message.imageUrl:`${API}${message.imageUrl}`} alt="Shared in chat"/>}
+                {message.voiceUrl&&<VoiceMessage url={message.voiceUrl} durationSeconds={message.durationSeconds}/>}
+                <footer><time>{new Date(message.createdAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time>{message.fromUserId===user.id&&<span>{message.readAt?'Seen':message.deliveredAt?'Delivered':'Sent'}</span>}</footer>
+              </article>
+            </div>):<div className="chat-empty"><MessageCircle size={34}/><h3>Start the conversation</h3><p>Say hello to {selected.name} and start building something together.</p></div>}
+          </div>
+          {imagePreview&&<div className="chat-image-preview"><img src={imagePreview} alt="Selected image preview"/><button onClick={()=>setImage(null)} aria-label="Remove image"><X size={15}/></button></div>}
+          {recording&&<div className="chat-recording-controls" role="status"><span><i/>Recording voice… {formatDuration(recordingSeconds)}</span><button type="button" onClick={cancelRecording}>Cancel</button><button type="button" onClick={stopRecording}>Stop</button></div>}
+          {voiceDraftUrl&&<div className="chat-voice-preview"><span>Voice message preview · {formatDuration(voiceDraftDuration)}</span><audio controls preload="metadata" src={voiceDraftUrl} aria-label="Preview voice message"/><button type="button" onClick={discardVoiceDraft} aria-label="Discard voice message"><X size={17}/></button></div>}
+          {recordingError&&<p className="chat-recording-error" role="alert">{recordingError}</p>}
+          <form className="chat-composer" onSubmit={event=>{event.preventDefault();void send()}}>
+            <input value={body} onChange={event=>changeMessageBody(event.target.value)} placeholder="Write a message…" aria-label="Message" disabled={recording}/>
+            <input ref={imageRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" hidden onChange={event=>setImage(event.target.files?.[0]||null)}/>
+            <button type="button" className={`chat-voice-button ${recording?'recording':''}`} onClick={()=>void startRecording()} disabled={recording||Boolean(voiceDraft)} aria-label="Record a voice message" title="Record a voice message"><Mic size={19}/></button>
+            <button type="button" className="chat-attach-button" onClick={()=>imageRef.current?.click()} aria-label="Attach image"><ImagePlus size={19}/></button>
+            <button type="submit" className="chat-send-button" disabled={!body.trim()&&!image&&!voiceDraft} aria-label="Send message"><Send size={18}/></button>
+          </form>
+        </>:<div className="chat-welcome"><MessageCircle size={42}/><h2>Your conversations, in one place.</h2><p>Select an accepted connection to open a private conversation. Chat is available only after a request is accepted.</p>{!users.length&&<NavLink to="/developers" className="btn btn-primary">Discover developers <ArrowUpRight size={15}/></NavLink>}</div>}
+      </section></div>
   </main>{settingsOpen&&<section className="chat-settings-overlay"><header><h2>Chat settings</h2><button onClick={()=>setSettingsOpen(false)} aria-label="Close chat settings"><X size={16}/></button></header><label>Conversation background<select value={wallpaper} onChange={event=>void saveWallpaper(event.target.value)}><option value="dark-grid">Dark grid</option><option value="deep-space">Deep space</option><option value="circuit">Circuit board</option><option value="aurora">Aurora</option><option value="light-grid">Light grid</option><option value="light-circuit">Light circuit</option><option value="solid-white">White</option><option value="solid-midnight">Solid midnight</option><option value="solid-slate">Solid slate</option><option value="gradient-violet">Violet gradient</option><option value="gradient-ocean">Ocean gradient</option><option value="custom">Custom image</option></select></label><button className="chat-upload-wallpaper" onClick={()=>wallpaperRef.current?.click()}><Upload size={14}/> Upload custom background</button><input ref={wallpaperRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" hidden onChange={event=>{const file=event.target.files?.[0];if(file)void uploadWallpaper(file);event.target.value=''}}/><label className="chat-sound-setting"><input type="checkbox" checked={soundOn} onChange={event=>void changeSound(event.target.checked)}/> Notification sound</label><button className="chat-push-setting" onClick={()=>void enableNotifications()}><Bell size={14}/> Enable device notifications</button>{pushNotice&&<p role="status">{pushNotice}</p>}{loadError&&<p className="settings-error" role="alert">{loadError}</p>}{selected&&<Link to={`/developers/${encodeURIComponent(selected.id)}`} className="chat-push-setting">View profile <ArrowUpRight size={14}/></Link>}</section>}</>
 }
 function LegacyMessages({user}:{user:User|null}){

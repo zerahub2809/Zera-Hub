@@ -127,17 +127,24 @@ body:not(.admin-page) .hero {
 }
 
 body:not(.admin-page) .hero-grid {
-  width: min(1216px, calc(100% - 64px));
+  width: min(1360px, calc(100% - 80px));
   display: grid;
-  grid-template-columns: minmax(0, 1.04fr) minmax(0, .96fr);
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, .88fr);
   align-items: center;
   gap: clamp(25px, 4vw, 64px);
   position: relative;
   z-index: 1;
 }
 
+body:not(.admin-page) .hero > .hero-grid,
+body:not(.admin-page) .hero > .hero-bottom {
+  grid-column: 1 / -1;
+}
+
 body:not(.admin-page) .hero-grid > div:first-child {
-  max-width: none;
+  width: 100%;
+  max-width: 700px;
+  justify-self: center;
 }
 
 body:not(.admin-page) .hero h1 {
@@ -161,7 +168,7 @@ body:not(.admin-page) .hero h1 span {
 
 @media (min-width: 1121px) {
   body:not(.admin-page) .hero-grid {
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr);
+    grid-template-columns: minmax(0, 1.16fr) minmax(0, .84fr);
   }
 }
 

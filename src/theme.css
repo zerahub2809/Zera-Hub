@@ -2157,3 +2157,261 @@ html[data-theme] body .profile-bio,
 html[data-theme] body .profile-about {
   font-weight: 600;
 }
+
+.chat-live-status {
+  flex:none;
+  padding:7px clamp(14px,3vw,42px);
+  border-bottom:1px solid var(--border);
+  color:var(--text-secondary);
+  font-size:12px;
+}
+.chat-voice-button {
+  display:grid;
+  place-items:center;
+  flex:none;
+  width:43px;
+  height:43px;
+  border:1px solid var(--border);
+  border-radius:13px;
+  background:var(--surface);
+  color:var(--primary);
+}
+.chat-voice-button:disabled { opacity:.5; cursor:not-allowed; }
+.chat-recording-controls,.chat-voice-preview {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:9px clamp(12px,3vw,42px);
+  border-top:1px solid var(--border);
+  background:var(--surface-elevated);
+  color:var(--text-primary);
+  font-size:12px;
+}
+.chat-recording-controls>span {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex:1;
+}
+.chat-recording-controls>span i {
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:var(--primary);
+}
+.chat-recording-controls button,.chat-voice-preview button {
+  display:grid;
+  place-items:center;
+  min-width:40px;
+  min-height:36px;
+  padding:6px 10px;
+  border:1px solid var(--border);
+  border-radius:9px;
+  background:var(--surface);
+  color:var(--text-primary);
+}
+.chat-voice-preview>span { flex:none; color:var(--text-secondary); }
+.chat-voice-preview audio { flex:1; min-width:0; max-width:520px; }
+.chat-recording-error {
+  margin:0;
+  padding:8px clamp(12px,3vw,42px);
+  color:var(--error,#a33)!important;
+  font-size:12px;
+}
+.chat-voice-message { display:grid; gap:4px; max-width:min(100%,480px); }
+.chat-voice-message audio { display:block; width:min(360px,100%); max-width:100%; }
+.chat-voice-message>span { color:var(--text-secondary); font-size:11px; }
+html[data-theme] .chat-recording-controls,
+html[data-theme] .chat-voice-preview,
+html[data-theme] .chat-voice-button {
+  border-color:var(--border);
+  background:var(--surface-elevated);
+  color:var(--text-primary);
+}
+html[data-theme] .chat-voice-button:not(:disabled) { color:var(--primary); }
+html[data-theme] .chat-live-status {
+  border-color:var(--border);
+  background:var(--surface);
+}
+html[data-theme] .chat-voice-message audio,
+html[data-theme] .chat-voice-preview audio {
+  color-scheme:inherit;
+}
+
+@media(max-width:720px) {
+  .chat-recording-controls,.chat-voice-preview {
+    flex-wrap:wrap;
+    padding:8px 10px;
+  }
+  .chat-recording-controls>span { flex-basis:100%; }
+  .chat-voice-preview>span { flex:1; }
+  .chat-voice-preview audio { order:3; flex-basis:100%; width:100%; max-width:none; }
+  .chat-composer { gap:6px; padding-inline:8px; }
+  .chat-voice-button,.chat-attach-button,.chat-send-button { width:39px; height:39px; }
+}
+
+html[data-theme="light"] {
+  --chat-background-overlay: rgba(247,247,245,.38);
+  --chat-meta-text: #57534E;
+  --chat-meta-outgoing: #F7F7F5;
+  --chat-placeholder: #57534E;
+  --chat-status-text: #57534E;
+}
+
+html[data-theme="dark"] {
+  --chat-background-overlay: rgba(17,19,21,.42);
+  --chat-meta-text: #C6C4BE;
+  --chat-meta-outgoing: #F7F7F5;
+  --chat-placeholder: #C6C4BE;
+  --chat-status-text: #C6C4BE;
+}
+
+html[data-theme] body .chat-fullscreen .chat-conversation {
+  background-color: var(--page-background);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+html[data-theme] body .chat-fullscreen .chat-message-history {
+  background-color: transparent;
+  background-image: none;
+}
+
+html[data-theme="light"] body .chat-fullscreen .chat-message-bubble {
+  background-color: #F7F7F5;
+}
+
+html[data-theme="dark"] body .chat-fullscreen .chat-message-bubble {
+  background-color: #2A2A28;
+}
+
+html[data-theme] body .chat-fullscreen .chat-message-row.outgoing .chat-message-bubble {
+  background-color: #8C6A43;
+}
+
+html[data-theme] body .chat-fullscreen .chat-message-row.outgoing .chat-message-bubble p {
+  color: #F7F7F5;
+}
+
+html[data-theme="light"] body .chat-fullscreen :is(.chat-live-status,.chat-recording-controls,.chat-voice-preview) {
+  background-color: #F7F7F5;
+}
+
+html[data-theme="dark"] body .chat-fullscreen :is(.chat-live-status,.chat-recording-controls,.chat-voice-preview) {
+  background-color: #2A2A28;
+}
+
+html[data-theme] body .chat-fullscreen.wallpaper-dark-grid .chat-conversation {
+  background-image:
+    linear-gradient(rgba(140,106,67,.055) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(140,106,67,.055) 1px,transparent 1px);
+  background-size: 28px 28px;
+}
+
+html[data-theme] body .chat-fullscreen.wallpaper-deep-space .chat-conversation {
+  background-image: radial-gradient(ellipse at 55% 15%,rgba(140,106,67,.18),transparent 56%);
+}
+
+html[data-theme] body .chat-fullscreen.wallpaper-circuit .chat-conversation {
+  background-image:
+    linear-gradient(135deg,transparent 48%,rgba(140,106,67,.09) 49%,rgba(140,106,67,.09) 50%,transparent 51%),
+    linear-gradient(rgba(140,106,67,.045) 1px,transparent 1px);
+  background-size: 48px 48px,24px 24px;
+}
+
+html[data-theme] body .chat-fullscreen.wallpaper-aurora .chat-conversation {
+  background-image:
+    radial-gradient(ellipse at 25% 0%,rgba(140,106,67,.15),transparent 48%),
+    radial-gradient(ellipse at 85% 90%,rgba(217,215,210,.12),transparent 54%);
+}
+
+html[data-theme] body .chat-fullscreen:is(.wallpaper-light-grid,.wallpaper-light-circuit) .chat-conversation,
+html[data-theme] body .chat-fullscreen.wallpaper-solid-white .chat-conversation {
+  background-color: #F7F7F5;
+}
+
+html[data-theme] body .chat-fullscreen.wallpaper-light-grid .chat-conversation {
+  background-image:
+    linear-gradient(rgba(140,106,67,.08) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(140,106,67,.08) 1px,transparent 1px);
+  background-size: 28px 28px;
+}
+
+html[data-theme] body .chat-fullscreen.wallpaper-light-circuit .chat-conversation {
+  background-image: linear-gradient(135deg,transparent 48%,rgba(140,106,67,.12) 49%,rgba(140,106,67,.12) 50%,transparent 51%);
+  background-size: 48px 48px;
+}
+
+html[data-theme] body .chat-fullscreen.wallpaper-solid-midnight .chat-conversation {
+  background-color: #111315;
+  background-image: none;
+}
+
+html[data-theme] body .chat-fullscreen.wallpaper-solid-slate .chat-conversation {
+  background-color: #2A2A28;
+  background-image: none;
+}
+
+html[data-theme] body .chat-fullscreen.wallpaper-gradient-violet .chat-conversation {
+  background-color: #111315;
+  background-image: linear-gradient(145deg,#111315,#2A2A28 58%,#111315);
+}
+
+html[data-theme] body .chat-fullscreen.wallpaper-gradient-ocean .chat-conversation {
+  background-color: #111315;
+  background-image: linear-gradient(145deg,#111315,#2A2A28 52%,rgba(140,106,67,.2));
+}
+
+html[data-theme] body .chat-fullscreen.wallpaper-custom .chat-conversation {
+  background-color: var(--page-background);
+}
+
+html[data-theme] body .chat-fullscreen .chat-message-bubble footer,
+html[data-theme] body .chat-fullscreen .conversation-copy small,
+html[data-theme] body .chat-fullscreen .active-chat-person > span,
+html[data-theme] body .chat-fullscreen :is(.chat-settings > p,.chat-settings-overlay > p,.chat-list-empty,.chat-welcome p,.chat-empty p),
+html[data-theme] body .chat-fullscreen :is(.conversation-search input,.chat-composer > input:first-child)::placeholder {
+  color: var(--chat-meta-text);
+  opacity: 1;
+}
+
+html[data-theme] body .chat-fullscreen .chat-message-bubble footer {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+html[data-theme] body .chat-fullscreen .chat-message-row.outgoing .chat-message-bubble footer {
+  color: var(--chat-meta-outgoing);
+  opacity: .9;
+}
+
+html[data-theme] body .chat-fullscreen .chat-live-status,
+html[data-theme] body .chat-fullscreen .chat-recording-controls {
+  color: var(--chat-status-text);
+}
+
+html[data-theme] body .chat-fullscreen .chat-composer > input:first-child::placeholder {
+  color: var(--chat-placeholder);
+}
+
+.header .header-actions {
+  margin-left: auto;
+}
+
+.header .mobile-menu {
+  position: absolute;
+  top: 100%;
+  right: clamp(16px, 3vw, 40px);
+  width: min(360px, calc(100vw - 32px));
+  max-height: calc(100dvh - 96px);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.header .mobile-menu-inner.container {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 12px 16px 20px;
+}

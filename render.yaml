@@ -4,3 +4,10 @@ services:
     runtime: node
     buildCommand: npm install && npm run build
     startCommand: node server/index.js
+    disk:
+      name: zera-hub-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /var/data
