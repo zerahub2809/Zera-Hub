@@ -1,13 +1,12 @@
 import { useEffect } from 'react';
-import { Sparkles } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://zera-hub-api.onrender.com' : 'http://localhost:4000');
 
-export function BrandMark({ site }: { site: { logoUrl?: string } | null }) {
-  const rawLogoUrl = site?.logoUrl ? site.logoUrl : '';
+export function BrandMark({ site }: { site?: { logoUrl?: string } | null }) {
+  const rawLogoUrl = site?.logoUrl ? site.logoUrl : '/logo.png';
   const logoUrl = rawLogoUrl
-    ? (rawLogoUrl.startsWith('http') ? rawLogoUrl : `${API}${rawLogoUrl.startsWith('/') ? rawLogoUrl : `/${rawLogoUrl}`}`)
-    : '';
+    ? (rawLogoUrl.startsWith('http') || rawLogoUrl.startsWith('data:') || rawLogoUrl.startsWith('/') ? rawLogoUrl : `${API}${rawLogoUrl.startsWith('/') ? rawLogoUrl : `/${rawLogoUrl}`}`)
+    : '/logo.png';
   const normalizeLogoUrl = (value: string) => {
     try {
       return encodeURI(decodeURI(value));
@@ -15,7 +14,7 @@ export function BrandMark({ site }: { site: { logoUrl?: string } | null }) {
       return encodeURI(value);
     }
   };
-  const safeLogoUrl = logoUrl ? normalizeLogoUrl(logoUrl) : '';
+  const safeLogoUrl = logoUrl ? normalizeLogoUrl(logoUrl) : '/logo.png';
 
   useEffect(() => {
     if (!safeLogoUrl) return;
@@ -28,5 +27,14 @@ export function BrandMark({ site }: { site: { logoUrl?: string } | null }) {
     favicon.href = safeLogoUrl;
   }, [safeLogoUrl]);
 
-  return <span className="brand-mark">{safeLogoUrl ? <img src={safeLogoUrl} alt="ZERA HUB logo"/> : <Sparkles size={18}/>}</span>;
+  return (
+    <span className="brand-mark">
+      <img src={safeLogoUrl} alt="ZERA HUB logo" onError={(e) => {
+        const target = e.currentTarget;
+        if (target.src !== '/logo.png') {
+          target.src = '/logo.png';
+        }
+      }} />
+    </span>
+  );
 }

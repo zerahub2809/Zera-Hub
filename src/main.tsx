@@ -2,7 +2,7 @@ import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {AnimatePresence,motion,useReducedMotion} from 'framer-motion';
 import {BrowserRouter,Routes,Route,Link,NavLink,useNavigate,useLocation} from 'react-router-dom';
-import {ArrowRight,ArrowUpRight,BrainCircuit,BriefcaseBusiness,Code2,Compass,FileCode2,FolderKanban,Globe2,Layers3,Mail,Menu,MessageCircle,Network,Plus,Search,Send,ShieldCheck,Sparkles,Terminal,Users,Workflow,X,Instagram,Facebook,Twitter,Settings,LogOut,UserRound,AtSign,Lock,CheckCircle2,AlertTriangle,Upload,BarChart3,Ban,RefreshCw,Bell,ImagePlus,Check,Sun,Moon,ChevronLeft} from 'lucide-react';
+import {ArrowRight,ArrowUpRight,BrainCircuit,BriefcaseBusiness,Code2,Compass,FileCode2,FolderKanban,Globe2,Home as HomeIcon,Layers3,Mail,Menu,MessageCircle,Network,Plus,Search,Send,ShieldCheck,Sparkles,Terminal,Users,Workflow,X,Instagram,Facebook,Twitter,Settings,LogOut,UserRound,AtSign,Lock,CheckCircle2,AlertTriangle,Upload,BarChart3,Ban,RefreshCw,Bell,ImagePlus,Check,Sun,Moon,ChevronLeft} from 'lucide-react';
 import './index.css';
 import './visual-refresh.css';
 import AdminControlCenter from './AdminControlCenter';
@@ -24,7 +24,7 @@ type PushPublicKeyResponse={publicKey:string|null};
 type ConnectionListResponse={connections:Array<{id:string;user:User;status:'pending'|'accepted'|'rejected';direction:'incoming'|'outgoing'|'connected'}>};
 type ChatPreferencesResponse={chatWallpaper?:string;chatWallpaperImage?:string;theme?:Theme;notificationSound?:boolean};
 type Theme='light'|'dark';
-function applyTheme(theme:Theme){document.documentElement.dataset.theme=theme;document.body.dataset.theme=theme;localStorage.setItem('zera_theme',theme);const meta=document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');if(meta)meta.content=theme==='light'?'#f5f7fb':'#070912'}
+function applyTheme(theme:Theme){document.documentElement.dataset.theme=theme;document.body.dataset.theme=theme;localStorage.setItem('zera_theme',theme);const meta=document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');if(meta)meta.content=theme==='light'?'#F7F7F5':'#111315'}
 const nav=[['/','Home'],['/about','About'],['/developers','Developers'],['/services','Services'],['/projects','Projects'],['/community','Community'],['/ai','ZERA AI'],['/collaborate','Collaborate'],['/jobs','Jobs'],['/contact','Contact']];
 const api=async(path:string,options:RequestInit={})=>{const token=localStorage.getItem('zera_token');const headers=new Headers(options.headers);headers.set('Content-Type','application/json');if(token)headers.set('Authorization',`Bearer ${token}`);const r=await fetch(`${API}${path}`,{...options,headers});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||'Request failed');return data;};
 function apiUpload<T>(path:string,formData:FormData):Promise<T>{const headers=new Headers();const token=localStorage.getItem('zera_token');if(token)headers.set('Authorization',`Bearer ${token}`);return fetch(`${API}${path}`,{method:'POST',headers,body:formData}).then(async response=>{const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Upload failed');return data as T})}
@@ -34,27 +34,6 @@ function UserAvatar({user,className=''}:{user:User;className?:string}){return <s
 function VerificationBadge(){return <span className="verification-badge" title="Verified profile" aria-label="Verified profile"><Check size={11}/></span>}
 function formatLastSeen(user:User){if(user.online)return 'Online';if(!user.lastSeenAt)return 'Offline';const elapsed=Date.now()-Date.parse(user.lastSeenAt);if(elapsed<3600000)return `Last seen ${Math.max(1,Math.floor(elapsed/60000))}m ago`;if(elapsed<86400000)return `Last seen ${Math.floor(elapsed/3600000)}h ago`;return `Last seen ${new Date(user.lastSeenAt).toLocaleDateString()}`}
 function PresenceHeartbeat(){useEffect(()=>{const heartbeat=()=>{if(localStorage.getItem('zera_token'))api('/api/presence',{method:'POST'}).catch(error=>console.error('Could not update account presence:',error))};heartbeat();const timer=window.setInterval(heartbeat,45000);return()=>window.clearInterval(timer)},[]);return null}
-function ThemeControl(){const [theme,setTheme]=useState<Theme>(()=>localStorage.getItem('zera_theme')==='light'?'light':'dark');const location=useLocation();const loadAccountTheme=()=>{if(!localStorage.getItem('zera_token'))return;apiTyped<ChatPreferencesResponse>('/api/platform/profile/preferences').then(preferences=>{if(preferences.theme==='light'||preferences.theme==='dark'){setTheme(preferences.theme);applyTheme(preferences.theme)}}).catch(error=>console.error('Could not load account theme preference:',error))};useEffect(()=>{applyTheme(theme);loadAccountTheme();const sync=()=>loadAccountTheme();window.addEventListener('zera-authenticated',sync);return()=>window.removeEventListener('zera-authenticated',sync)},[]);const toggle=()=>{const next=theme==='dark'?'light':'dark';setTheme(next);applyTheme(next);if(localStorage.getItem('zera_token'))api('/api/platform/profile/preferences',{method:'PATCH',body:JSON.stringify({theme:next})}).catch(error=>console.error('Could not save account theme preference:',error))};if(location.pathname==='/messages')return null;return <button className="global-theme-toggle" type="button" onClick={toggle} aria-label={`Switch to ${theme==='dark'?'light':'dark'} mode`} title={`Switch to ${theme==='dark'?'light':'dark'} mode`}>{theme==='dark'?<Sun size={17}/>:<Moon size={17}/>}<span>{theme==='dark'?'Light':'Dark'}</span></button>}
-function AuthenticatedMenu(){
-  const [authenticated,setAuthenticated]=useState(()=>Boolean(localStorage.getItem('zera_token')));
-  const [unread,setUnread]=useState(0);
-  const location=useLocation();
-  useEffect(()=>{
-    const refresh=()=>{
-      const signedIn=Boolean(localStorage.getItem('zera_token'));
-      setAuthenticated(signedIn);
-      if(signedIn)apiTyped<PlatformNotification[]>('/api/notifications').then(items=>setUnread(items.filter(item=>!item.readAt).length)).catch(error=>console.error('Could not load unread notification count:',error));
-      else setUnread(0);
-    };
-    refresh();
-    const timer=window.setInterval(refresh,20000);
-    window.addEventListener('zera-authenticated',refresh);
-    window.addEventListener('storage',refresh);
-    return()=>{window.clearInterval(timer);window.removeEventListener('zera-authenticated',refresh);window.removeEventListener('storage',refresh)};
-  },[location.pathname]);
-  if(!authenticated||location.pathname==='/messages')return null;
-  return <nav className="authenticated-menu" aria-label="Your ZERA HUB platform"><NavLink to="/app">Home</NavLink><NavLink to="/developers">Developers</NavLink><NavLink to="/developers#connection-requests">Connections</NavLink><NavLink to="/messages">Messages</NavLink><NavLink to="/notifications">Notifications{unread>0&&<i>{unread>99?'99+':unread}</i>}</NavLink><NavLink to="/profile">Profile</NavLink></nav>;
-}
 
 function App(){
   const [auth,setAuth]=useState<'developer'|'hire'|'signin'|null>(null);
@@ -66,28 +45,46 @@ function App(){
   const location=useLocation();
   const isAdminRoute=location.pathname==='/admindev2809';
   const isMessagesRoute=location.pathname==='/messages';
+
+  const syncUser=()=>{
+    const raw=localStorage.getItem('zera_user');
+    if(raw){
+      try{setUser(JSON.parse(raw));}catch{}
+    }else{
+      setUser(null);
+    }
+  };
+
   useEffect(()=>{
     api('/api/site-config').then(setSite).catch(()=>{});
-    const raw=localStorage.getItem('zera_user');
-    if(raw)setUser(JSON.parse(raw));
+    syncUser();
     const open=(event:Event)=>{const detail=(event as CustomEvent<{prompt?:string;context?:string}>).detail;setAIPrompt(detail?.prompt||'');setAIContext(detail?.context||'');setAI(true)};
     window.addEventListener('open-zera-ai',open);
-    return()=>window.removeEventListener('open-zera-ai',open);
+    window.addEventListener('zera-authenticated',syncUser);
+    window.addEventListener('storage',syncUser);
+    return()=>{
+      window.removeEventListener('open-zera-ai',open);
+      window.removeEventListener('zera-authenticated',syncUser);
+      window.removeEventListener('storage',syncUser);
+    };
   },[]);
+
   useEffect(()=>{
     if(!user)return;
     apiTyped<ChatPreferencesResponse>('/api/platform/profile/preferences')
       .then(preferences=>{if(preferences.theme==='light'||preferences.theme==='dark')applyTheme(preferences.theme)})
       .catch(error=>console.error('Could not load account theme preference:',error));
   },[user]);
+
   useEffect(()=>{
     if(!site?.logoUrl)return;
     const favicon=document.querySelector<HTMLLinkElement>('link[rel~="icon"]');
     if(favicon)favicon.href=site.logoUrl.startsWith('http')?site.logoUrl:`${API}${site.logoUrl}`;
   },[site]);
+
   return <>
     <PresenceHeartbeat/>
-    {!isAdminRoute&&!isMessagesRoute&&<Header site={site} onAuth={setAuth}/>}
+    {!isAdminRoute&&!isMessagesRoute&&<Header site={site} user={user} onAuth={setAuth}/>}
     <Routes>
       <Route path="/" element={<Home onAuth={setAuth} onAI={()=>setAI(true)}/>}/>
       <Route path="/about" element={<About/>}/>
@@ -114,7 +111,160 @@ function App(){
 
 function Brand({site,compact=false}:{site:any;compact?:boolean}){return <NavLink className="brand" to="/"><BrandMark site={site}/>{!compact&&<span><strong>{site?.brandName||'ZERA HUB'}</strong><small>{site?.tagline||'Grow Ideas. Build Tomorrow.'}</small></span>}</NavLink>}
 function LogoMark({site}:{site:any}){return <BrandMark site={site}/>}
-function Header({site,onAuth}:{site:any;onAuth:(x:any)=>void}){const [open,setOpen]=useState(false);const location=useLocation();const token=localStorage.getItem('zera_token');const storedUser=localStorage.getItem('zera_user');const currentUser=storedUser?JSON.parse(storedUser) as User:null;const signOut=()=>{localStorage.removeItem('zera_token');localStorage.removeItem('zera_user');window.location.assign('/')};return <header className="header"><div className="container header-inner"><Brand site={site}/><nav className="desktop-nav">{nav.map(([to,label])=><NavLink key={to} className={({isActive})=>isActive?'active':''} to={to}>{label}</NavLink>)}</nav><div className="header-actions"><NavLink className="btn btn-ghost hide-mobile" to="/app">Open Hub</NavLink>{token?<><NavLink className="btn btn-primary hide-mobile" to="/profile">{currentUser?.name||'My profile'} <UserRound size={16}/></NavLink><button className="btn btn-ghost hide-mobile" onClick={signOut}>Sign out</button></>:<button className="btn btn-primary hide-mobile" onClick={()=>onAuth('developer')}>Join ZERA <ArrowRight size={16}/></button>}<button className="icon-btn menu-btn" onClick={()=>setOpen(!open)}>{open?<X/>:<Menu/>}</button></div></div><AnimatePresence>{open&&<motion.div className="mobile-menu" initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}}><div className="container mobile-menu-inner">{nav.map(([to,label])=><NavLink onClick={()=>setOpen(false)} key={to} to={to}>{label}<ArrowUpRight size={15}/></NavLink>)}<div className="mobile-auth">{token?<><NavLink className="btn btn-ghost" to="/messages" onClick={()=>setOpen(false)}>Messages</NavLink><NavLink className="btn btn-primary" to="/profile" onClick={()=>setOpen(false)}>My profile</NavLink><button className="btn btn-ghost" onClick={signOut}>Sign out</button></>:<><button className="btn btn-ghost" onClick={()=>{onAuth('signin');setOpen(false)}}>Sign in</button><button className="btn btn-primary" onClick={()=>{onAuth('developer');setOpen(false)}}>Sign up <ArrowRight size={15}/></button></>}</div></div></motion.div>}</AnimatePresence></header>}
+
+function Header({site,user,onAuth}:{site:any;user:User|null;onAuth:(x:any)=>void}){
+  const [open,setOpen]=useState(false);
+  const [unreadNotifs,setUnreadNotifs]=useState(0);
+  const [unreadMsgs,setUnreadMsgs]=useState(0);
+  const location=useLocation();
+  const token=localStorage.getItem('zera_token');
+  const currentUser=user;
+
+  useEffect(()=>{
+    if(!token){
+      setUnreadNotifs(0);
+      setUnreadMsgs(0);
+      return;
+    }
+    const refreshCounts=()=>{
+      if(!localStorage.getItem('zera_token'))return;
+      apiTyped<PlatformNotification[]>('/api/notifications')
+        .then(items=>{
+          const notifs=items.filter(item=>!item.readAt);
+          setUnreadNotifs(notifs.filter(i=>i.type!=='message').length);
+          setUnreadMsgs(notifs.filter(i=>i.type==='message').length);
+        })
+        .catch(()=>{});
+    };
+    refreshCounts();
+    const timer=window.setInterval(refreshCounts,15000);
+    window.addEventListener('zera-authenticated',refreshCounts);
+    return()=>{
+      window.clearInterval(timer);
+      window.removeEventListener('zera-authenticated',refreshCounts);
+    };
+  },[token,location.pathname]);
+
+  const signOut=()=>{
+    localStorage.removeItem('zera_token');
+    localStorage.removeItem('zera_user');
+    window.dispatchEvent(new Event('zera-authenticated'));
+    window.location.assign('/');
+  };
+
+  const authenticatedNav = [
+    { to: '/app', label: 'Hub', icon: HomeIcon },
+    { to: '/community', label: 'Community', icon: Users },
+    { to: '/developers', label: 'Developers', icon: Code2 },
+    { to: '/developers#connection-requests', label: 'Connections', icon: Network },
+    { to: '/messages', label: 'Messages', icon: MessageCircle, badge: unreadMsgs },
+    { to: '/notifications', label: 'Notifications', icon: Bell, badge: unreadNotifs },
+    { to: '/ai', label: 'ZERA AI', icon: BrainCircuit },
+    { to: '/jobs', label: 'Jobs', icon: BriefcaseBusiness },
+  ];
+
+  return (
+    <header className="header">
+      <div className="container header-inner">
+        <Brand site={site}/>
+        <nav className="desktop-nav">
+          {token ? (
+            authenticatedNav.map(({to,label,badge}) => (
+              <NavLink key={to} className={({isActive})=>isActive?'active':''} to={to}>
+                {label}
+                {typeof badge === 'number' && badge > 0 ? <span className="nav-badge">{badge > 99 ? '99+' : badge}</span> : null}
+              </NavLink>
+            ))
+          ) : (
+            nav.map(([to,label]) => (
+              <NavLink key={to} className={({isActive})=>isActive?'active':''} to={to}>
+                {label}
+              </NavLink>
+            ))
+          )}
+        </nav>
+        <div className="header-actions">
+          {token && currentUser ? (
+            <>
+              <NavLink className="header-user-pill hide-mobile" to="/profile" title="View & Edit Profile">
+                <UserAvatar user={currentUser}/>
+                <span className="header-user-name">{currentUser.name}</span>
+                {currentUser.verified && <VerificationBadge/>}
+              </NavLink>
+              <button className="btn btn-ghost hide-mobile" onClick={signOut}>Sign out</button>
+            </>
+          ) : (
+            <>
+              <button className="btn btn-ghost hide-mobile" onClick={()=>onAuth('signin')}>Sign in</button>
+              <button className="btn btn-primary hide-mobile" onClick={()=>onAuth('developer')}>Join ZERA <ArrowRight size={16}/></button>
+            </>
+          )}
+          <button className="icon-btn menu-btn" onClick={()=>setOpen(!open)} aria-label="Toggle navigation menu">
+            {open ? <X size={20}/> : <Menu size={20}/>}
+          </button>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div className="mobile-menu" initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}}>
+            <div className="container mobile-menu-inner">
+              {token && currentUser && (
+                <div className="mobile-user-card">
+                  <UserAvatar user={currentUser}/>
+                  <div className="mobile-user-details">
+                    <b>{currentUser.name} {currentUser.verified && <VerificationBadge/>}</b>
+                    <small>@{currentUser.username}</small>
+                  </div>
+                </div>
+              )}
+
+              <div className="mobile-links-list">
+                {token ? (
+                  authenticatedNav.map(({to,label,icon:Icon,badge}) => (
+                    <NavLink onClick={()=>setOpen(false)} key={to} to={to} className="mobile-nav-link">
+                      <span className="mobile-nav-title"><Icon size={17}/> {label}</span>
+                      {typeof badge === 'number' && badge > 0 ? <span className="nav-badge">{badge > 99 ? '99+' : badge}</span> : <ArrowUpRight size={14}/>}
+                    </NavLink>
+                  ))
+                ) : (
+                  nav.map(([to,label]) => (
+                    <NavLink onClick={()=>setOpen(false)} key={to} to={to} className="mobile-nav-link">
+                      <span>{label}</span>
+                      <ArrowUpRight size={14}/>
+                    </NavLink>
+                  ))
+                )}
+              </div>
+
+              <div className="mobile-auth">
+                {token ? (
+                  <>
+                    <NavLink className="btn btn-primary mobile-full-btn" to="/profile" onClick={()=>setOpen(false)}>
+                      <UserRound size={16}/> My Profile
+                    </NavLink>
+                    <button className="btn btn-ghost mobile-full-btn" onClick={signOut}>
+                      <LogOut size={16}/> Sign out
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button className="btn btn-ghost mobile-full-btn" onClick={()=>{onAuth('signin');setOpen(false)}}>
+                      Sign in
+                    </button>
+                    <button className="btn btn-primary mobile-full-btn" onClick={()=>{onAuth('developer');setOpen(false)}}>
+                      Join ZERA <ArrowRight size={15}/>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </header>
+  );
+}
 function Ambient(){return <div className="ambient" aria-hidden><div className="orb orb-a"/><div className="orb orb-b"/><div className="grid-glow"/><div className="stars">{Array.from({length:30}).map((_,i)=><i key={i}/>)}</div></div>}
 function Reveal({children,delay=0,className=''}:{children:React.ReactNode;delay?:number;className?:string}){const reduced=useReducedMotion();return <motion.div className={className} initial={reduced?false:{opacity:0,y:25}} whileInView={reduced?undefined:{opacity:1,y:0}} viewport={{once:true,amount:.12}} transition={{duration:.65,delay}}>{children}</motion.div>}
 function SectionTitle({eyebrow,title,caption}:{eyebrow:string;title:string;caption:string}){return <Reveal className="section-heading"><span className="eyebrow">{eyebrow}</span><h2>{title}</h2><p>{caption}</p></Reveal>}
@@ -192,7 +342,7 @@ function Messages({user}:{user:User|null}){
   const wallpaperStyle=wallpaper==='custom'&&wallpaperImage?{backgroundImage:`linear-gradient(rgba(8,13,23,.78),rgba(8,13,23,.78)),url("${wallpaperImage.startsWith('http')?wallpaperImage:`${API}${wallpaperImage}`}")`}:undefined;
   if(!user)return <main className="chat-signin"><MessageCircle size={38}/><h1>Sign in to your conversations</h1><p>Your private chats are available after signing in and connecting with another member.</p><NavLink className="btn btn-primary" to="/">Back to ZERA HUB</NavLink></main>;
   return <><main className={`chat-fullscreen wallpaper-${wallpaper}${selected?' mobile-chat-open':''}`}>
-    <header className="chat-topbar"><NavLink className="chat-brand" to="/app"><BrandMark site={null}/><b>ZERA HUB <span>MESSAGES</span></b></NavLink><div className="chat-top-actions"><NavLink to="/notifications" className="chat-top-link"><Bell size={17}/> Notifications {notifications.some(item=>!item.readAt)&&<i/>}</NavLink><button className="chat-theme-toggle" onClick={()=>{const next=(document.documentElement.dataset.theme==='dark'?'light':'dark') as Theme;applyTheme(next);if(localStorage.getItem('zera_token'))api('/api/platform/profile/preferences',{method:'PATCH',body:JSON.stringify({theme:next})}).catch(error=>console.error('Could not save account theme preference:',error))}} title="Toggle color theme">{document.documentElement.dataset.theme==='dark'?<Sun size={18}/>:<Moon size={18}/>}</button><NavLink to="/app" className="chat-top-link"><ChevronLeft size={17}/> Hub</NavLink></div></header>
+    <header className="chat-topbar"><NavLink className="chat-brand" to="/app"><BrandMark site={null}/><b>ZERA HUB <span>MESSAGES</span></b></NavLink><div className="chat-top-actions"><NavLink to="/notifications" className="chat-top-link"><Bell size={17}/> Notifications {notifications.some(item=>!item.readAt)&&<i/>}</NavLink><NavLink to="/app" className="chat-top-link"><ChevronLeft size={17}/> Hub</NavLink></div></header>
     <div className="chat-workspace"><aside className="chat-conversations"><div className="chat-list-heading"><div><span>YOUR NETWORK</span><h1>Messages</h1></div><button className="chat-settings-button" onClick={()=>setSettingsOpen(value=>!value)} aria-expanded={settingsOpen} title="Chat settings"><Settings size={18}/></button></div><label className="conversation-search"><Search size={16}/><input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search conversations"/></label>{settingsOpen&&<section className="chat-settings chat-settings-sidebar"><h2>Chat settings</h2><p>Choose a wallpaper, adjust your sounds, or enable supported device notifications.</p></section>}<div className="conversation-list">{visibleUsers.map(account=>{const count=unreadFor(account.id);return <button className={`conversation-item ${selected?.id===account.id?'selected':''}`} onClick={()=>{setSelected(account);setSettingsOpen(false)}} key={account.id}><UserAvatar user={account}/><span className="conversation-copy"><b>{account.name}{account.verified&&<VerificationBadge/>}</b><small>{formatLastSeen(account)}</small></span>{count>0&&<i className="conversation-unread">{count}</i>}</button>})}{!users.length&&<div className="chat-list-empty"><Users size={22}/><b>No conversations yet</b><span>Only accepted connections appear here.</span><NavLink to="/developers">Discover developers</NavLink></div>}{users.length>0&&!visibleUsers.length&&<p className="chat-list-empty">No conversations match that search.</p>}</div></aside>
       <section className="chat-conversation" style={wallpaperStyle}>{selected?<><header className="active-chat-header"><button className="chat-back-button" onClick={()=>setSelected(null)}><ChevronLeft size={20}/></button><UserAvatar user={selected}/><div className="active-chat-person"><h2>{selected.name}{selected.verified&&<VerificationBadge/>}</h2><span><i className={`platform-presence-dot ${selected.online?'online':''}`}/>{formatLastSeen(selected)}</span></div><Link to={`/developers/${encodeURIComponent(selected.id)}`} className="view-chat-profile">View profile <ArrowUpRight size={15}/></Link><button className="chat-settings-button active-settings" onClick={()=>setSettingsOpen(value=>!value)} title="Chat settings"><Settings size={18}/></button></header>{loadError&&<p className="chat-inline-error" role="alert">{loadError}</p>}<div className="chat-message-history" ref={messagesRef}>{messages.length?messages.map(message=><div className={`chat-message-row ${message.fromUserId===user.id?'outgoing':''}`} key={message.id}>{message.fromUserId!==user.id&&<UserAvatar user={selected} className="message-avatar"/>}<article className="chat-message-bubble">{message.body&&<p>{message.body}</p>}{message.imageUrl&&<img className="chat-image" src={message.imageUrl.startsWith('http')?message.imageUrl:`${API}${message.imageUrl}`} alt="Shared in chat"/>}<footer><time>{new Date(message.createdAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time>{message.fromUserId===user.id&&<span>{message.readAt?'Read':message.deliveredAt?'Delivered':'Sent'}</span>}</footer></article></div>):<div className="chat-empty"><MessageCircle size={34}/><h3>Start the conversation</h3><p>Say hello to {selected.name} and start building something together.</p></div>}</div>{imagePreview&&<div className="chat-image-preview"><img src={imagePreview} alt="Selected image preview"/><button onClick={()=>setImage(null)} aria-label="Remove image"><X size={15}/></button></div>}<form className="chat-composer" onSubmit={event=>{event.preventDefault();void send()}}><input value={body} onChange={event=>setBody(event.target.value)} placeholder="Write a message…" aria-label="Message"/><input ref={imageRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" hidden onChange={event=>setImage(event.target.files?.[0]||null)}/><button type="button" className="chat-attach-button" onClick={()=>imageRef.current?.click()} aria-label="Attach image"><ImagePlus size={19}/></button><button type="submit" className="chat-send-button" disabled={!body.trim()&&!image} aria-label="Send message"><Send size={18}/></button></form></>:<div className="chat-welcome"><MessageCircle size={42}/><h2>Your conversations, in one place.</h2><p>Select an accepted connection to open a private conversation. Chat is available only after a request is accepted.</p>{!users.length&&<NavLink to="/developers" className="btn btn-primary">Discover developers <ArrowUpRight size={15}/></NavLink>}</div>}</section></div>
   </main>{settingsOpen&&<section className="chat-settings-overlay"><header><h2>Chat settings</h2><button onClick={()=>setSettingsOpen(false)} aria-label="Close chat settings"><X size={16}/></button></header><label>Conversation background<select value={wallpaper} onChange={event=>void saveWallpaper(event.target.value)}><option value="dark-grid">Dark grid</option><option value="deep-space">Deep space</option><option value="circuit">Circuit board</option><option value="aurora">Aurora</option><option value="light-grid">Light grid</option><option value="light-circuit">Light circuit</option><option value="solid-white">White</option><option value="solid-midnight">Solid midnight</option><option value="solid-slate">Solid slate</option><option value="gradient-violet">Violet gradient</option><option value="gradient-ocean">Ocean gradient</option><option value="custom">Custom image</option></select></label><button className="chat-upload-wallpaper" onClick={()=>wallpaperRef.current?.click()}><Upload size={14}/> Upload custom background</button><input ref={wallpaperRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" hidden onChange={event=>{const file=event.target.files?.[0];if(file)void uploadWallpaper(file);event.target.value=''}}/><label className="chat-sound-setting"><input type="checkbox" checked={soundOn} onChange={event=>void changeSound(event.target.checked)}/> Notification sound</label><button className="chat-push-setting" onClick={()=>void enableNotifications()}><Bell size={14}/> Enable device notifications</button>{pushNotice&&<p role="status">{pushNotice}</p>}{loadError&&<p className="settings-error" role="alert">{loadError}</p>}{selected&&<Link to={`/developers/${encodeURIComponent(selected.id)}`} className="chat-push-setting">View profile <ArrowUpRight size={14}/></Link>}</section>}</>
@@ -226,11 +376,11 @@ function LegacyMessages({user}:{user:User|null}){
     </aside><section className="chat-panel">{loadError&&<p className="platform-error" role="status">{loadError}</p>}{selected?<><header className="chat-title"><UserAvatar user={selected}/><span><b>{selected.name}{selected.verified&&<VerificationBadge/>}</b><small>{formatLastSeen(selected)}</small></span></header><div className="messages">{messages.map(message=><div key={message.id} className={`msg ${message.fromUserId===user.id?'mine':''}`}>{message.body&&<p>{message.body}</p>}{message.imageUrl&&<img className="chat-image" src={message.imageUrl.startsWith('http')?message.imageUrl:`${API}${message.imageUrl}`} alt="Shared in chat"/>}<footer><time>{new Date(message.createdAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time>{message.fromUserId===user.id&&<span>{message.readAt?'Read':message.deliveredAt?'Delivered':'Sent'}</span>}</footer></div>)}</div>{imagePreview&&<div className="image-preview"><img src={imagePreview} alt="Preview"/><button onClick={()=>setImage(null)} aria-label="Remove image"><X size={14}/></button></div>}<div className="send-row"><input value={body} onChange={event=>setBody(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();void send()}}} placeholder="Write a message…"/><input ref={imageRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" hidden onChange={event=>setImage(event.target.files?.[0]||null)}/><button className="icon-btn" onClick={()=>imageRef.current?.click()} title="Attach image"><ImagePlus size={18}/></button><button className="send-message" onClick={()=>void send()} disabled={!body.trim()&&!image}><Send size={17}/></button></div></>:<div className="chat-empty"><MessageCircle size={34}/><h3>{users.length?'Select a conversation':'No conversations yet'}</h3><p>{users.length?'Choose an accepted connection to start chatting.':'Connect with a developer and accept the request before messaging.'}</p><NavLink to="/developers" className="btn btn-ghost">Discover developers <ArrowUpRight size={14}/></NavLink></div>}</section></div></Page>
 }
 function Profile({user,setUser}:{user:User|null;setUser:(u:User)=>void}){const [name,setName]=useState(user?.name||'');const [bio,setBio]=useState(user?.bio||'');const [skills,setSkills]=useState((user?.skills||[]).join(', '));if(!user)return <Page eyebrow="Profile" title="Create your ZERA identity." caption="Sign in to manage your profile." icon={UserRound}><EmptyState title="Sign in required" text="Create a developer or hire account first."/></Page>;const save=async()=>{try{const u=await api('/api/profile',{method:'PATCH',body:JSON.stringify({name,bio,skills:skills.split(',').map(x=>x.trim()).filter(Boolean)})});setUser(u);localStorage.setItem('zera_user',JSON.stringify(u));alert('Profile saved.')}catch(e:any){alert(e.message)}};return <Page eyebrow="Your identity" title="Build a profile people can trust." caption="Show what you build, what you know and what you are available for." icon={UserRound}><div className="profile-form"><label>Name<input value={name} onChange={e=>setName(e.target.value)}/></label><label>Bio<textarea value={bio} onChange={e=>setBio(e.target.value)}/></label><label>Skills <small>comma separated</small><input value={skills} onChange={e=>setSkills(e.target.value)}/></label><button className="btn btn-primary" onClick={save}>Save profile <CheckCircle2 size={15}/></button></div></Page>}
-function AuthModal({type,site,onClose,onSignedIn}:{type:'developer'|'hire'|'signin';site:any;onClose:()=>void;onSignedIn:(u:User)=>void}){const [mode,setMode]=useState(type);const [name,setName]=useState('');const [username,setUsername]=useState('');const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [notice,setNotice]=useState('');const [submitting,setSubmitting]=useState(false);const submittingRef=useRef(false);const navigate=useNavigate();const submit=async(event:React.FormEvent<HTMLFormElement>)=>{event.preventDefault();if(submittingRef.current)return;submittingRef.current=true;setSubmitting(true);setNotice('');const formData=new FormData(event.currentTarget);const formName=String(formData.get('name')||'');const formUsername=String(formData.get('username')||'');const formEmail=String(formData.get('email')||'');const formPassword=String(formData.get('password')||'');try{if(mode==='signin'){const d=await api('/api/auth/login',{method:'POST',body:JSON.stringify({email:formEmail,password:formPassword})});localStorage.setItem('zera_token',d.token);localStorage.setItem('zera_user',JSON.stringify(d.user));onSignedIn(d.user);navigate('/app')}else{await api('/api/auth/signup',{method:'POST',body:JSON.stringify({name:formName,username:formUsername,email:formEmail,password:formPassword,accountType:mode})});setMode('signin');setName('');setUsername('');setPassword('');setNotice('Account created successfully. Please sign in.')}}catch(e:any){alert(e.message)}finally{submittingRef.current=false;setSubmitting(false)}};return <div className="modal-backdrop" onClick={onClose}><div className="modal glass" onClick={e=>e.stopPropagation()}><button type="button" className="modal-close" onClick={onClose}><X/></button><div className="modal-brand"><LogoMark site={site}/></div><div className="modal-icon">{mode==='hire'?<BriefcaseBusiness/>:<Code2/>}</div><span className="eyebrow">{mode==='signin'?'Welcome back':'Join ZERA HUB'}</span><h2>{mode==='signin'?'Sign in to your workspace':mode==='hire'?'Sign up to Hire':'Sign up as a Developer'}</h2><p>{mode==='signin'?'Continue to messages, community, profile and ZERA AI.':'Create your identity and start connecting inside the ecosystem.'}</p>{notice&&<p className="auth-notice" role="status">{notice}</p>}<form onSubmit={submit} onKeyDown={event=>{if(event.key==='Enter'&&event.target instanceof HTMLInputElement){event.preventDefault();event.currentTarget.requestSubmit()}}}><div className="auth-fields">{mode!=='signin'&&<><input className="modal-input" name="name" autoComplete="name" placeholder="Full name" value={name} onChange={e=>setName(e.target.value)} required/><input className="modal-input" name="username" autoComplete="username" placeholder="Username" value={username} onChange={e=>setUsername(e.target.value)} required/></>}<input className="modal-input" type="email" name="email" autoComplete="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} required/><input className="modal-input" type="password" name="password" autoComplete={mode==='signin'?'current-password':'new-password'} placeholder="Password (8+ characters)" value={password} onChange={e=>setPassword(e.target.value)} minLength={mode==='signin'?undefined:8} required/></div><button className="btn btn-primary modal-submit" type="submit" disabled={submitting}>{submitting?(mode==='signin'?'Signing in…':'Creating account…'):(mode==='signin'?'Sign in':'Sign up')} <ArrowRight size={15}/></button></form><button type="button" className="switch-mode" onClick={()=>{setMode(mode==='signin'?'developer':'signin');setNotice('')}}>{mode==='signin'?'Don’t have an account? Sign Up':'Already have an account? Sign In'}</button></div></div>}
+function AuthModal({type,site,onClose,onSignedIn}:{type:'developer'|'hire'|'signin';site:any;onClose:()=>void;onSignedIn:(u:User)=>void}){const [mode,setMode]=useState(type);const [name,setName]=useState('');const [username,setUsername]=useState('');const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [notice,setNotice]=useState('');const [submitting,setSubmitting]=useState(false);const submittingRef=useRef(false);const navigate=useNavigate();const submit=async(event:React.FormEvent<HTMLFormElement>)=>{event.preventDefault();if(submittingRef.current)return;submittingRef.current=true;setSubmitting(true);setNotice('');const formData=new FormData(event.currentTarget);const formName=String(formData.get('name')||'');const formUsername=String(formData.get('username')||'');const formEmail=String(formData.get('email')||'');const formPassword=String(formData.get('password')||'');try{if(mode==='signin'){const d=await api('/api/auth/login',{method:'POST',body:JSON.stringify({email:formEmail,password:formPassword})});localStorage.setItem('zera_token',d.token);localStorage.setItem('zera_user',JSON.stringify(d.user));onSignedIn(d.user);if(window.location.pathname==='/'){navigate('/app')}}else{await api('/api/auth/signup',{method:'POST',body:JSON.stringify({name:formName,username:formUsername,email:formEmail,password:formPassword,accountType:mode})});setMode('signin');setName('');setUsername('');setPassword('');setNotice('Account created successfully. Please sign in.')}}catch(e:any){alert(e.message)}finally{submittingRef.current=false;setSubmitting(false)}};return <div className="modal-backdrop" onClick={onClose}><div className="modal glass" onClick={e=>e.stopPropagation()}><button type="button" className="modal-close" onClick={onClose}><X/></button><div className="modal-brand"><LogoMark site={site}/></div><div className="modal-icon">{mode==='hire'?<BriefcaseBusiness/>:<Code2/>}</div><span className="eyebrow">{mode==='signin'?'Welcome back':'Join ZERA HUB'}</span><h2>{mode==='signin'?'Sign in to your workspace':mode==='hire'?'Sign up to Hire':'Sign up as a Developer'}</h2><p>{mode==='signin'?'Continue to messages, community, profile and ZERA AI.':'Create your identity and start connecting inside the ecosystem.'}</p>{notice&&<p className="auth-notice" role="status">{notice}</p>}<form onSubmit={submit} onKeyDown={event=>{if(event.key==='Enter'&&event.target instanceof HTMLInputElement){event.preventDefault();event.currentTarget.requestSubmit()}}}><div className="auth-fields">{mode!=='signin'&&<><input className="modal-input" name="name" autoComplete="name" placeholder="Full name" value={name} onChange={e=>setName(e.target.value)} required/><input className="modal-input" name="username" autoComplete="username" placeholder="Username" value={username} onChange={e=>setUsername(e.target.value)} required/></>}<input className="modal-input" type="email" name="email" autoComplete="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} required/><input className="modal-input" type="password" name="password" autoComplete={mode==='signin'?'current-password':'new-password'} placeholder="Password (8+ characters)" value={password} onChange={e=>setPassword(e.target.value)} minLength={mode==='signin'?undefined:8} required/></div><button className="btn btn-primary modal-submit" type="submit" disabled={submitting}>{submitting?(mode==='signin'?'Signing in…':'Creating account…'):(mode==='signin'?'Sign in':'Sign up')} <ArrowRight size={15}/></button></form><button type="button" className="switch-mode" onClick={()=>{setMode(mode==='signin'?'developer':'signin');setNotice('')}}>{mode==='signin'?'Don’t have an account? Sign Up':'Already have an account? Sign In'}</button></div></div>}
 function EmptyState({title,text,action,onClick}:{title:string;text:string;action?:string;onClick?:()=>void}){return <div className="empty-state"><Sparkles/><h3>{title}</h3><p>{text}</p>{action&&<button className="btn btn-primary" onClick={onClick}>{action}<ArrowRight size={15}/></button>}</div>}
 function NotFound(){return <Page eyebrow="404" title="That page does not exist." caption="Use the navigation to return to the ZERA HUB ecosystem." icon={AlertTriangle}><NavLink className="btn btn-primary" to="/">Back home <ArrowRight size={15}/></NavLink></Page>}
 function Admin(){const [email,setEmail]=useState('zerahub@outlook.com');const [password,setPassword]=useState('');const [token,setToken]=useState(localStorage.getItem('zera_admin')||'');const [data,setData]=useState<any>(null);const [status,setStatus]=useState('');const login=async()=>{try{const d=await api('/api/admin/login',{method:'POST',body:JSON.stringify({email,password})});localStorage.setItem('zera_admin',d.token);setToken(d.token)}catch(e:any){alert(e.message)}};useEffect(()=>{if(token){localStorage.setItem('zera_token',token);api('/api/admin/overview').then(setData).catch(()=>{localStorage.removeItem('zera_admin');setToken('')})}},[token]);const act=async(id:string,s:string)=>{await api(`/api/admin/users/${id}`,{method:'PATCH',body:JSON.stringify({status:s})});setData(await api('/api/admin/overview'))};const saveConfig=async()=>{await api('/api/admin/site-config',{method:'PATCH',body:JSON.stringify({brandName:data.siteConfig.brandName,tagline:data.siteConfig.tagline,logoUrl:data.siteConfig.logoUrl,contactEmail:data.siteConfig.contactEmail})});setStatus('Saved');setData(await api('/api/admin/overview'))};if(!token)return <Page eyebrow="Private administration" title="ZERA HUB Admin" caption="The admin area is not linked in the public navigation. It is protected server-side and should use a strong password plus MFA when deployed." icon={Settings}><div className="admin-login"><input className="modal-input" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Admin email"/><input className="modal-input" type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Admin password"/><button className="btn btn-primary" onClick={login}>Enter admin <ShieldCheck size={15}/></button></div></Page>;return <Page eyebrow="Private administration" title="ZERA HUB Control Center" caption="Manage users, moderation signals, reports and public brand configuration from one protected area." icon={Settings}><div className="admin-stats">{Object.entries(data.stats).map(([k,v])=><div key={k}><BarChart3/><b>{String(v)}</b><span>{k}</span></div>)}</div><div className="admin-grid"><section className="admin-panel"><div className="panel-head"><h3>Users</h3><RefreshCw onClick={()=>api('/api/admin/overview').then(setData)}/></div>{data.users.map((u:User)=><div className="admin-row" key={u.id}><div><b>{u.name}</b><span>@{u.username} · {u.accountType}</span></div><div className="row-actions"><span className={`status ${u.status}`}>{u.status}</span>{u.status==='active'?<button onClick={()=>act(u.id,'suspended')}><Ban size={14}/> Suspend</button>:<button onClick={()=>act(u.id,'active')}><CheckCircle2 size={14}/> Activate</button>}</div></div>)}</section><section className="admin-panel"><h3>Brand configuration</h3><label>Brand name<input value={data.siteConfig.brandName} onChange={e=>setData({...data,siteConfig:{...data.siteConfig,brandName:e.target.value}})}/></label><label>Tagline<input value={data.siteConfig.tagline} onChange={e=>setData({...data,siteConfig:{...data.siteConfig,tagline:e.target.value}})}/></label><label>Logo URL<input value={data.siteConfig.logoUrl} onChange={e=>setData({...data,siteConfig:{...data.siteConfig,logoUrl:e.target.value}})}/></label><label>Contact email<input value={data.siteConfig.contactEmail} onChange={e=>setData({...data,siteConfig:{...data.siteConfig,contactEmail:e.target.value}})}/></label><button className="btn btn-primary" onClick={saveConfig}>Save changes <Upload size={15}/></button>{status&&<small>{status}</small>}</section></div><section className="admin-panel"><h3>Open reports & moderation</h3>{data.reports.length===0?<p className="muted">No reports yet.</p>:data.reports.map((r:any)=><div className="admin-row" key={r.id}><div><b>{r.reason}</b><span>{r.details||'No details'} · {r.status}</span></div><span className="status open">{r.status}</span></div>)}</section></Page>}
 function Footer({site}:{site:any}){return <footer className="footer"><div className="container footer-grid"><div><Brand site={site}/><p className="footer-copy">ZERA HUB — Grow Ideas. Build Tomorrow. A developer-first ecosystem for connection, learning, collaboration, opportunity and intelligent building.</p><div className="social-icons"><a href={social.facebook} target="_blank" rel="noreferrer" aria-label="Facebook"><Facebook/></a><a href={social.instagram} target="_blank" rel="noreferrer" aria-label="Instagram"><Instagram/></a><a href={social.x} target="_blank" rel="noreferrer" aria-label="X"><Twitter/></a></div></div><div><h4>Explore</h4>{nav.slice(1,6).map(([to,label])=><NavLink key={to} to={to}>{label}</NavLink>)}</div><div><h4>Platform</h4><NavLink to="/ai">ZERA AI</NavLink><NavLink to="/messages">Messages</NavLink><NavLink to="/jobs">Jobs</NavLink><NavLink to="/contact">Contact</NavLink></div></div><div className="container footer-bottom"><span>© {new Date().getFullYear()} ZERA HUB</span><span>Built for people who build technology.</span></div></footer>}
 
 window.addEventListener('open-zera-ai',()=>{});
-createRoot(document.getElementById('root')!).render(<BrowserRouter><App/><AuthenticatedMenu/><ThemeControl/></BrowserRouter>);
+createRoot(document.getElementById('root')!).render(<BrowserRouter><App/></BrowserRouter>);

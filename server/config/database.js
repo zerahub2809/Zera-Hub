@@ -20,21 +20,26 @@ export async function connectDatabase() {
   console.info('MongoDB URI diagnostics:', diagnostics);
 
   if (!uri) {
-    throw new Error('MONGODB_URI is not configured. Add your MongoDB Atlas URI to the local .env file.');
+    console.warn('MONGODB_URI is not configured. Falling back to persistent local storage.');
+    return null;
   }
   if (diagnostics.hasWhitespace || diagnostics.hasQuotes) {
-    throw new Error('MONGODB_URI contains whitespace or quote characters. Check the value in .env; the value was not modified.');
+    console.warn('MONGODB_URI contains whitespace or quote characters. Check .env. Falling back to local storage.');
+    return null;
   }
 
   try {
-    await mongoose.connect(uri, { serverSelectionTimeoutMS: 10000 });
-    console.log('Connected to MongoDB.');
+    await mongoose.connect(uri, { serverSelectionTimeoutMS: 8000 });
+    console.log('Connected to MongoDB successfully.');
     return mongoose.connection;
   } catch (error) {
-    throw new Error('MongoDB connection failed. Check MongoDB DNS resolution and Atlas network access.', { cause: error });
+    console.warn('MongoDB connection could not be established:', error.message);
+    console.warn('Operating in resilient local-persistent mode using db.json.');
+    return null;
   }
 }
 
 mongoose.connection.on('error', (error) => {
-  console.error('MongoDB connection error code:', error.code || error.name);
+  console.error('MongoDB connection runtime event:', error.code || error.name || error.message);
 });
+

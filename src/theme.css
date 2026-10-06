@@ -1,21 +1,55 @@
 html[data-theme="light"] {
   color-scheme: light;
-  --muted: #667085;
-  --line: rgba(23, 34, 54, .13);
-  --page-bg: #f5f7fb;
-  --surface: #ffffff;
-  --surface-raised: #f9fafc;
-  --text-primary: #182230;
-  --text-secondary: #526071;
+  --primary: #8C6A43;
+  --primary-hover: #705333;
+  --secondary: #6B6B6B;
+  --accent: #8C6A43;
+  --page-background: #F7F7F5;
+  --surface: #F7F7F5;
+  --surface-elevated: rgba(217, 215, 210, .24);
+  --text-primary: #111315;
+  --text-secondary: #6B6B6B;
+  --text-muted: #6B6B6B;
+  --border: #D9D7D2;
+  --input-background: #F7F7F5;
+  --focus-ring: rgba(140, 106, 67, .28);
+  --success: #8C6A43;
+  --warning: #8C6A43;
+  --error: #111315;
+  --notification: #8C6A43;
+  --muted: var(--text-muted);
+  --line: var(--border);
+  --page-bg: var(--page-background);
+  --surface-raised: var(--surface-elevated);
+  --purple: var(--primary);
+  --cyan: var(--accent);
 }
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  --page-bg: #05070d;
-  --surface: #0c111b;
-  --surface-raised: #111827;
-  --text-primary: #edf2ff;
-  --text-secondary: #9aa5b8;
+  --primary: #8C6A43;
+  --primary-hover: #705333;
+  --secondary: #6B6B6B;
+  --accent: #8C6A43;
+  --page-background: #111315;
+  --surface: #111315;
+  --surface-elevated: #2A2A28;
+  --text-primary: #F7F7F5;
+  --text-secondary: #6B6B6B;
+  --text-muted: #6B6B6B;
+  --border: #2A2A28;
+  --input-background: #2A2A28;
+  --focus-ring: rgba(140, 106, 67, .42);
+  --success: #8C6A43;
+  --warning: #8C6A43;
+  --error: #F7F7F5;
+  --notification: #8C6A43;
+  --muted: var(--text-muted);
+  --line: var(--border);
+  --page-bg: var(--page-background);
+  --surface-raised: var(--surface-elevated);
+  --purple: var(--primary);
+  --cyan: var(--accent);
 }
 
 html[data-theme="light"] body {
@@ -207,9 +241,9 @@ html[data-theme="light"] .footer a {
   right: 50%;
   bottom: 16px;
   display: flex;
-  max-width: calc(100vw - 24px);
+  align-items: center;
   gap: 4px;
-  overflow-x: auto;
+  max-width: calc(100vw - 24px);
   padding: 7px;
   transform: translateX(50%);
   border: 1px solid rgba(255,255,255,.12);
@@ -219,27 +253,166 @@ html[data-theme="light"] .footer a {
   backdrop-filter: blur(18px);
 }
 
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #6366f1;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  margin-left: 5px;
+}
+
+.header-user-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.header-user-pill:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: #ffffff;
+}
+
+.header-user-pill .inner-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 11px;
+}
+
+.header-user-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-user-card {
+  display: flex;
+  max-width: calc(100vw - 24px);
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mobile-user-card .inner-avatar {
+  width: 42px;
+  height: 42px;
+  font-size: 16px;
+}
+
+.mobile-user-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mobile-user-details b {
+  font-size: 14px;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mobile-user-details small {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.mobile-links-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 16px;
+  background: rgba(9,14,24,.92);
+  box-shadow: 0 12px 40px rgba(0,0,0,.24);
+  backdrop-filter: blur(18px);
+  width: 100%;
+}
+
 .authenticated-menu a {
   position: relative;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 5px;
-  padding: 9px 11px;
+  gap: 6px;
+  padding: 9px 12px;
   border-radius: 10px;
   color: #adb8ca;
-  font-size: 10px;
-  font-weight: 650;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
   transition: background .18s ease, color .18s ease;
+}
+
+.mobile-nav-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: 10px;
+  color: #cbd5e1;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s ease;
 }
 
 .authenticated-menu a:hover,
 .authenticated-menu a.active {
   color: #f1efff;
-  background: rgba(139,92,246,.18);
+  background: rgba(99, 102, 241, 0.18);
 }
 
-.authenticated-menu a i,
+.mobile-nav-link:hover,
+.mobile-nav-link.active {
+  background: rgba(99, 102, 241, 0.15);
+  color: #ffffff;
+}
+
+.authenticated-menu a i {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #818cf8;
+}
+
+.mobile-nav-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mobile-full-btn {
+  width: 100%;
+  justify-content: center;
+  gap: 8px;
+}
+
 .chat-top-link i {
   display: inline-block;
   width: 7px;
@@ -451,6 +624,7 @@ html[data-theme="light"] .conversation-item { color:#344054; }
 html[data-theme="light"] .conversation-copy>b { color:#263246; }
 html[data-theme="light"] .conversation-item:hover,html[data-theme="light"] .conversation-item.selected { background:rgba(112,82,190,.1); }
 html[data-theme="light"] .chat-theme-toggle,html[data-theme="light"] .chat-settings-button,html[data-theme="light"] .chat-back-button { border-color:rgba(23,34,54,.14); background:#fff; color:#48566b; }
+html[data-theme="light"] .chat-settings-button,html[data-theme="light"] .chat-back-button { border-color:rgba(23,34,54,.14); background:#fff; color:#48566b; }
 html[data-theme="light"] .active-chat-header,html[data-theme="light"] .chat-composer { border-color:rgba(23,34,54,.1); background:rgba(255,255,255,.9); }
 html[data-theme="light"] .chat-message-bubble { border-color:rgba(23,34,54,.11); background:rgba(255,255,255,.94); color:#263246; }
 html[data-theme="light"] .chat-message-row.outgoing .chat-message-bubble { border-color:rgba(100,77,171,.2); background:linear-gradient(140deg,#e7e1fb,#dce8f8); color:#273149; }
@@ -497,6 +671,7 @@ html[data-theme="light"] .chat-signin p { color:#667085; }
 
 @media(prefers-reduced-motion:reduce) {
   .authenticated-menu,.global-theme-toggle,.chat-fullscreen * { transition-duration:.01ms!important; animation-duration:.01ms!important; }
+  .chat-fullscreen * { transition-duration:.01ms!important; animation-duration:.01ms!important; }
 }
 
 .chat-fullscreen {
@@ -507,6 +682,7 @@ html[data-theme="light"] .chat-signin p { color:#667085; }
 
 .chat-fullscreen .chat-welcome h2,
 .chat-fullscreen .chat-empty h3 { font-size:22px; }
+
 
 .chat-signin h1 { font-size:26px; }
 
@@ -569,4 +745,1415 @@ html[data-theme="light"] .chat-signin p { color:#667085; }
   .chat-brand { font-size:12px; }
   .chat-top-link { font-size:10px; }
   .chat-composer>input:first-child { font-size:16px!important; }
+}
+
+html[data-theme] {
+  color: var(--text-primary);
+  background: var(--page-background);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-theme] body,
+html[data-theme] body:not(.admin-page),
+html[data-theme] body.admin-page {
+  color: var(--text-primary);
+  background: var(--page-background);
+  font-size: 16px;
+}
+
+html[data-theme] body:not(.admin-page) .home,
+html[data-theme] body:not(.admin-page) .page,
+html[data-theme] body:not(.admin-page) .hero,
+html[data-theme] body:not(.admin-page) .section-space,
+html[data-theme] body:not(.admin-page) .section-band {
+  color: var(--text-primary);
+  background-color: var(--page-background);
+  background-image: none;
+}
+
+html[data-theme] body:not(.admin-page) .header,
+html[data-theme] body:not(.admin-page) .footer,
+html[data-theme] body:not(.admin-page) .active-chat-header,
+html[data-theme] body:not(.admin-page) .chat-topbar,
+html[data-theme] body:not(.admin-page) .chat-composer {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) .feature-card,
+html[data-theme] body:not(.admin-page) .service-card,
+html[data-theme] body:not(.admin-page) .developer-card,
+html[data-theme] body:not(.admin-page) .role-card,
+html[data-theme] body:not(.admin-page) .job-card,
+html[data-theme] body:not(.admin-page) .story-card,
+html[data-theme] body:not(.admin-page) .contact-card,
+html[data-theme] body:not(.admin-page) .app-card,
+html[data-theme] body:not(.admin-page) .admin-panel,
+html[data-theme] body:not(.admin-page) .project-board,
+html[data-theme] body:not(.admin-page) .composer,
+html[data-theme] body:not(.admin-page) .post,
+html[data-theme] body:not(.admin-page) .empty-feed,
+html[data-theme] body:not(.admin-page) .messenger,
+html[data-theme] body:not(.admin-page) .profile-form,
+html[data-theme] body:not(.admin-page) .platform-card,
+html[data-theme] body:not(.admin-page) .platform-feedback,
+html[data-theme] body:not(.admin-page) .modal.glass,
+html[data-theme] body:not(.admin-page) .modal,
+html[data-theme] body:not(.admin-page) .ai-modal,
+html[data-theme] body:not(.admin-page) .ai-modal-shell,
+html[data-theme] body:not(.admin-page) .ai-workspace,
+html[data-theme] body:not(.admin-page) .chat-settings,
+html[data-theme] body:not(.admin-page) .chat-settings-overlay,
+html[data-theme] body:not(.admin-page) .notification-card {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(20, 31, 24, .06);
+}
+
+html[data-theme] body:not(.admin-page) .chat-conversations,
+html[data-theme] body:not(.admin-page) .ai-history,
+html[data-theme] body:not(.admin-page) .ai-chat-header,
+html[data-theme] body:not(.admin-page) .chat-settings-overlay,
+html[data-theme] body:not(.admin-page) .platform-record-fields,
+html[data-theme] body:not(.admin-page) .verification-request {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+}
+
+html[data-theme] body:not(.admin-page) .chat-conversation,
+html[data-theme] body:not(.admin-page) .ai-chat-area,
+html[data-theme] body:not(.admin-page) .ai-messages {
+  color: var(--text-primary);
+  background-color: var(--page-background);
+}
+
+html[data-theme] .chat-fullscreen {
+  color: var(--text-primary);
+  background: var(--page-background);
+}
+
+html[data-theme] .chat-signin {
+  color: var(--text-primary);
+  background: var(--page-background);
+}
+
+html[data-theme] .chat-signin p {
+  color: var(--text-secondary);
+}
+
+html[data-theme] .chat-signin a {
+  color: var(--primary);
+}
+
+html[data-theme] body:not(.admin-page) .brand small,
+html[data-theme] body:not(.admin-page) .desktop-nav a,
+html[data-theme] body:not(.admin-page) .mobile-menu a,
+html[data-theme] body:not(.admin-page) .hero p,
+html[data-theme] body:not(.admin-page) .page-caption,
+html[data-theme] body:not(.admin-page) .section-heading p,
+html[data-theme] body:not(.admin-page) .split-callout p,
+html[data-theme] body:not(.admin-page) .feature-card p,
+html[data-theme] body:not(.admin-page) .service-card p,
+html[data-theme] body:not(.admin-page) .developer-card p,
+html[data-theme] body:not(.admin-page) .app-card span,
+html[data-theme] body:not(.admin-page) .job-card p,
+html[data-theme] body:not(.admin-page) .story-card p,
+html[data-theme] body:not(.admin-page) .contact-card p,
+html[data-theme] body:not(.admin-page) .footer-copy,
+html[data-theme] body:not(.admin-page) .footer-grid a:not(.brand),
+html[data-theme] body:not(.admin-page) .footer-bottom,
+html[data-theme] body:not(.admin-page) .conversation-copy small,
+html[data-theme] body:not(.admin-page) .active-chat-person > span,
+html[data-theme] body:not(.admin-page) .chat-welcome p,
+html[data-theme] body:not(.admin-page) .chat-empty p,
+html[data-theme] body:not(.admin-page) .notification-card-copy small,
+html[data-theme] body:not(.admin-page) .notification-card-copy time,
+html[data-theme] body:not(.admin-page) .notification-empty {
+  color: var(--text-secondary);
+}
+
+html[data-theme] body:not(.admin-page) .section-heading h2,
+html[data-theme] body:not(.admin-page) .page h1,
+html[data-theme] body:not(.admin-page) .split-callout h2,
+html[data-theme] body:not(.admin-page) .feature-card h3,
+html[data-theme] body:not(.admin-page) .service-card h3,
+html[data-theme] body:not(.admin-page) .developer-card h3,
+html[data-theme] body:not(.admin-page) .app-card b,
+html[data-theme] body:not(.admin-page) .story-card h3,
+html[data-theme] body:not(.admin-page) .contact-card h3,
+html[data-theme] body:not(.admin-page) .job-card h3,
+html[data-theme] body:not(.admin-page) .chat-brand,
+html[data-theme] body:not(.admin-page) .chat-list-heading h1,
+html[data-theme] body:not(.admin-page) .active-chat-person h2,
+html[data-theme] body:not(.admin-page) .chat-welcome h2,
+html[data-theme] body:not(.admin-page) .chat-empty h3,
+html[data-theme] body:not(.admin-page) .notification-group > h2,
+html[data-theme] body:not(.admin-page) .notification-card-copy > b {
+  color: var(--text-primary);
+}
+
+html[data-theme] body:not(.admin-page) .hero h1,
+html[data-theme] body:not(.admin-page) .hero h1 span {
+  color: var(--text-primary);
+  background: none;
+  filter: none;
+}
+
+html[data-theme] body:not(.admin-page) .brand-mark,
+html[data-theme] body:not(.admin-page) .feature-icon,
+html[data-theme] body:not(.admin-page) .modal-icon,
+html[data-theme] body:not(.admin-page) .ai-brand-mark,
+html[data-theme] body:not(.admin-page) .ai-welcome > span,
+html[data-theme] body:not(.admin-page) .notification-type-icon {
+  color: var(--primary);
+  border-color: var(--border);
+  background: var(--surface-elevated);
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) .btn-primary,
+html[data-theme] body:not(.admin-page) .chat-send-button,
+html[data-theme] body:not(.admin-page) .ai-composer .btn-primary {
+  color: #fff;
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) .btn-primary:hover,
+html[data-theme] body:not(.admin-page) .chat-send-button:hover,
+html[data-theme] body:not(.admin-page) .ai-composer .btn-primary:hover {
+  color: #fff;
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) .btn-ghost,
+html[data-theme] body:not(.admin-page) .icon-btn,
+html[data-theme] body:not(.admin-page) .chat-theme-toggle,
+html[data-theme] body:not(.admin-page) .chat-settings-button,
+html[data-theme] body:not(.admin-page) .chat-back-button,
+html[data-theme] body:not(.admin-page) .global-theme-toggle {
+  color: var(--secondary);
+  border-color: var(--border);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) .btn-ghost:hover,
+html[data-theme] body:not(.admin-page) .icon-btn:hover,
+html[data-theme] body:not(.admin-page) .desktop-nav a:hover,
+html[data-theme] body:not(.admin-page) .desktop-nav a.active,
+html[data-theme] body:not(.admin-page) .authenticated-menu a:hover,
+html[data-theme] body:not(.admin-page) .authenticated-menu a.active,
+html[data-theme] body:not(.admin-page) .conversation-item:hover,
+html[data-theme] body:not(.admin-page) .conversation-item.selected {
+  color: var(--primary);
+  border-color: var(--border);
+  background: var(--surface-elevated);
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme] body:not(.admin-page) textarea,
+html[data-theme] body:not(.admin-page) select,
+html[data-theme] body:not(.admin-page) .search-box,
+html[data-theme] body:not(.admin-page) .modal-input,
+html[data-theme] body:not(.admin-page) .conversation-search,
+html[data-theme] body:not(.admin-page) .chat-composer > input:first-child,
+html[data-theme] body:not(.admin-page) .chat-settings select,
+html[data-theme] body:not(.admin-page) .chat-settings-overlay > label select,
+html[data-theme] body:not(.admin-page) .ai-composer {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--input-background);
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) input::placeholder,
+html[data-theme] body:not(.admin-page) textarea::placeholder,
+html[data-theme] body:not(.admin-page) .conversation-search input::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+html[data-theme] body:not(.admin-page) :focus-visible,
+html[data-theme] body:not(.admin-page) .chat-composer > input:first-child:focus,
+html[data-theme] body:not(.admin-page) .search-box:focus-within,
+html[data-theme] body:not(.admin-page) .modal-input:focus {
+  outline-color: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+html[data-theme] body:not(.admin-page) .status-pill,
+html[data-theme] body:not(.admin-page) .page-kicker,
+html[data-theme] body:not(.admin-page) .eyebrow,
+html[data-theme] body:not(.admin-page) .switch-mode,
+html[data-theme] body:not(.admin-page) .view-chat-profile,
+html[data-theme] body:not(.admin-page) .chat-list-heading > div > span,
+html[data-theme] body:not(.admin-page) .ai-context-note,
+html[data-theme] body:not(.admin-page) .ai-context-note button {
+  color: var(--primary);
+}
+
+html[data-theme] body:not(.admin-page) .status-pill,
+html[data-theme] body:not(.admin-page) .page-kicker {
+  border-color: var(--border);
+  background: var(--surface-elevated);
+}
+
+html[data-theme] body:not(.admin-page) .chat-message-bubble {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--surface-elevated);
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) .chat-message-row.outgoing .chat-message-bubble {
+  color: #fff;
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+html[data-theme] body:not(.admin-page) .chat-message-bubble footer,
+html[data-theme] body:not(.admin-page) .ai-history-label,
+html[data-theme] body:not(.admin-page) .ai-composer small,
+html[data-theme] body:not(.admin-page) .chat-settings-overlay > p,
+html[data-theme] body:not(.admin-page) .chat-settings > p {
+  color: var(--text-muted);
+}
+
+html[data-theme] body:not(.admin-page) .chat-message-bubble p,
+html[data-theme] body:not(.admin-page) .ai-markdown {
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+html[data-theme] body:not(.admin-page) .ai-markdown h2,
+html[data-theme] body:not(.admin-page) .ai-markdown h3,
+html[data-theme] body:not(.admin-page) .ai-markdown h4 {
+  color: var(--text-primary);
+}
+
+html[data-theme] body:not(.admin-page) .chat-composer > input:first-child,
+html[data-theme] body:not(.admin-page) .ai-composer textarea,
+html[data-theme] body:not(.admin-page) input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme] body:not(.admin-page) textarea,
+html[data-theme] body:not(.admin-page) select {
+  font-size: 16px;
+}
+
+html[data-theme] body:not(.admin-page) .desktop-nav a,
+html[data-theme] body:not(.admin-page) .btn,
+html[data-theme] body:not(.admin-page) .btn-lg,
+html[data-theme] body:not(.admin-page) .chat-top-link,
+html[data-theme] body:not(.admin-page) .conversation-copy small,
+html[data-theme] body:not(.admin-page) .active-chat-person > span,
+html[data-theme] body:not(.admin-page) .chat-settings,
+html[data-theme] body:not(.admin-page) .chat-settings-overlay,
+html[data-theme] body:not(.admin-page) .notification-card-copy small,
+html[data-theme] body:not(.admin-page) .notification-card-copy time {
+  font-size: 12px;
+}
+
+html[data-theme] body:not(.admin-page) .feature-card p,
+html[data-theme] body:not(.admin-page) .service-card p,
+html[data-theme] body:not(.admin-page) .developer-card p,
+html[data-theme] body:not(.admin-page) .app-card span,
+html[data-theme] body:not(.admin-page) .job-card p,
+html[data-theme] body:not(.admin-page) .story-card p,
+html[data-theme] body:not(.admin-page) .contact-card p,
+html[data-theme] body:not(.admin-page) .page-caption,
+html[data-theme] body:not(.admin-page) .section-heading p,
+html[data-theme] body:not(.admin-page) .split-callout p,
+html[data-theme] body:not(.admin-page) .chat-welcome p,
+html[data-theme] body:not(.admin-page) .chat-empty p {
+  font-size: 15px;
+}
+
+html[data-theme] body:not(.admin-page) .ai-message-content {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+html[data-theme] body:not(.admin-page) .ai-message-content > span,
+html[data-theme] body:not(.admin-page) .ai-message.user .ai-message-content > span {
+  color: var(--primary);
+}
+
+html[data-theme] body:not(.admin-page) .ai-new-chat,
+html[data-theme] body:not(.admin-page) .ai-signin-button,
+html[data-theme] body:not(.admin-page) .ai-history-signin {
+  color: var(--primary);
+  border-color: var(--border);
+  background: var(--surface-elevated);
+}
+
+html[data-theme] body:not(.admin-page) .ai-history-list button {
+  color: var(--text-secondary);
+}
+
+html[data-theme] body:not(.admin-page) .ai-history-list button:hover,
+html[data-theme] body:not(.admin-page) .ai-history-list button.selected,
+html[data-theme] body:not(.admin-page) .ai-welcome > div button {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--surface-elevated);
+}
+
+html[data-theme] body:not(.admin-page) .ai-availability,
+html[data-theme] body:not(.admin-page) .ai-code-block,
+html[data-theme] body:not(.admin-page) .ai-markdown code:not(.ai-code-block code) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--surface-elevated);
+}
+
+html[data-theme] body:not(.admin-page) .ai-availability p,
+html[data-theme] body:not(.admin-page) .ai-code-block > div,
+html[data-theme] body:not(.admin-page) .ai-code-block button {
+  color: var(--text-secondary);
+}
+
+html[data-theme] body:not(.admin-page) .chat-theme-toggle:hover,
+html[data-theme] body:not(.admin-page) .chat-settings-button:hover {
+  color: var(--primary);
+  border-color: var(--border);
+}
+
+html[data-theme] body:not(.admin-page) .ai-error,
+html[data-theme] body:not(.admin-page) .chat-inline-error,
+html[data-theme] body:not(.admin-page) .settings-error,
+html[data-theme] body:not(.admin-page) .platform-error {
+  color: var(--error);
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+html[data-theme] body:not(.admin-page) .platform-success {
+  color: var(--success);
+}
+
+html[data-theme] body:not(.admin-page) .platform-warning,
+html[data-theme] body:not(.admin-page) .admin-warning,
+html[data-theme] body:not(.admin-page) .warning-message {
+  color: var(--warning);
+}
+
+html[data-theme] body:not(.admin-page) .status-pill span {
+  background: var(--success);
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) .chat-brand b span {
+  color: var(--accent);
+}
+
+html[data-theme] body:not(.admin-page) .notification-card.unread,
+html[data-theme] body:not(.admin-page) .notification-group > h2 span,
+html[data-theme] body:not(.admin-page) .conversation-unread,
+html[data-theme] body:not(.admin-page) .nav-badge {
+  color: #fff;
+  border-color: var(--notification);
+  background: var(--notification);
+}
+
+html[data-theme] body:not(.admin-page) .ambient .orb,
+html[data-theme] body:not(.admin-page) .visual-noise,
+html[data-theme] body:not(.admin-page) .grid-glow {
+  opacity: .025;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) .visual-ring,
+html[data-theme] body:not(.admin-page) .ring-two {
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) .core,
+html[data-theme] body:not(.admin-page) .float-card,
+html[data-theme] body:not(.admin-page) .seed-visual,
+html[data-theme] body:not(.admin-page) .seed-visual > div {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--surface-elevated);
+  box-shadow: none;
+}
+
+html[data-theme] body.admin-page .admin-shell {
+  --admin-bg: var(--page-background);
+  --admin-panel: var(--surface);
+  --admin-panel-solid: var(--surface-elevated);
+  --admin-line: var(--border);
+  --admin-text: var(--text-primary);
+  --admin-muted: var(--text-muted);
+  --admin-purple: var(--primary);
+  color: var(--text-primary);
+  background: var(--page-background);
+}
+
+html[data-theme] body.admin-page .admin-sidebar,
+html[data-theme] body.admin-page .admin-main,
+html[data-theme] body.admin-page .admin-content,
+html[data-theme] body.admin-page .admin-topbar {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+html[data-theme] body.admin-page .admin-side-nav button.active,
+html[data-theme] body.admin-page .admin-side-nav button:hover {
+  color: var(--primary);
+  border-color: var(--border);
+  background: var(--surface-elevated);
+  box-shadow: inset 2px 0 var(--primary);
+}
+
+html[data-theme] body.admin-page .admin-brand-mark,
+html[data-theme] body.admin-page .admin-side-nav button.active svg {
+  color: var(--primary);
+  border-color: var(--border);
+  background: var(--surface-elevated);
+  box-shadow: none;
+}
+
+html[data-theme] body.admin-page .admin-side-nav button {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+html[data-theme] {
+  color: var(--text-primary);
+  background: var(--page-background);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html[data-theme] body,
+html[data-theme] body:not(.admin-page),
+html[data-theme] body.admin-page,
+html[data-theme] #root {
+  color: var(--text-primary);
+  background-color: var(--page-background);
+}
+
+html[data-theme] body:not(.admin-page) {
+  background-image: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.home, .page, .hero, .section-space, .section-band, .page-inner, main) {
+  color: var(--text-primary);
+  background-color: var(--page-background);
+  background-image: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.header, .mobile-menu, .footer, .authenticated-menu, .mobile-links-list, .global-theme-toggle) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface);
+  background-image: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(
+  .feature-card, .service-card, .developer-card, .role-card, .job-card, .story-card,
+  .contact-card, .app-card, .admin-panel, .project-board, .composer, .post,
+  .empty-feed, .messenger, .profile-form, .platform-card, .platform-feedback,
+  .community-composer, .community-post, .community-side-card, .community-state,
+  .modal, .ai-modal, .ai-modal-shell, .ai-workspace, .chat-settings,
+  .chat-settings-overlay, .notification-card, .platform-record-fields,
+  .verification-request, .admin-panel-card, .admin-stat-card, .admin-table-wrap
+) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(
+  .chat-conversations, .ai-history, .ai-chat-header, .chat-topbar,
+  .active-chat-header, .chat-composer, .ai-composer, .community-reply,
+  .platform-record, .profile-sidebar, .settings-sidebar, .dashboard-sidebar
+) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.chat-conversation, .ai-chat-area, .ai-messages) {
+  color: var(--text-primary);
+  background-color: var(--page-background);
+  background-image: none;
+}
+
+html[data-theme] :is(.chat-fullscreen, .chat-signin) {
+  color: var(--text-primary);
+  background-color: var(--page-background);
+  background-image: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(p, small, time, label, .page-caption, .hero p,
+  .section-heading p, .split-callout p, .feature-card p, .service-card p,
+  .developer-card p, .app-card span, .job-card p, .story-card p, .contact-card p,
+  .platform-card p, .platform-meta, .platform-meta-row, .platform-hint, .platform-back,
+  .community-post-content, .community-author small, .community-comment-body small,
+  .community-reply small, .community-comment-body p, .community-reply p,
+  .community-state, .community-state p, .community-side-card p, .chat-list-empty,
+  .chat-welcome p, .chat-empty p, .conversation-copy small, .active-chat-person > span,
+  .notification-card-copy small, .notification-card-copy time, .notification-empty,
+  .ai-history-label, .ai-history-empty, .ai-chat-header span, .ai-availability p,
+  .ai-composer small, .ai-code-block > div, .footer-copy, .footer-bottom) {
+  color: var(--text-secondary);
+}
+
+html[data-theme] body:not(.admin-page) :is(h1, h2, h3, h4, h5, h6, strong, b,
+  .brand strong, .chat-brand, .chat-list-heading h1, .active-chat-person h2,
+  .notification-group > h2, .notification-card-copy > b, .community-author b,
+  .community-state h2, .community-side-card h2, .platform-card h2, .platform-card h3,
+  .platform-record b, .platform-job-bottom > b, .ai-markdown h2, .ai-markdown h3,
+  .ai-markdown h4, .modal h2) {
+  color: var(--text-primary);
+}
+
+html[data-theme] body:not(.admin-page) :is(a, .hero-links a, .hero-links button,
+  .platform-record a, .platform-links a, .platform-hirer-message,
+  .platform-applicant-message, .community-post-link, .community-tags span,
+  .community-side-card > a, .ai-back-link, .view-chat-profile, .switch-mode) {
+  color: var(--primary);
+}
+
+html[data-theme] body:not(.admin-page) :is(.hero h1 span, .eyebrow, .page-kicker,
+  .status-pill, .feature-icon, .brand-mark, .ai-brand-mark, .ai-welcome > span,
+  .notification-type-icon, .chat-brand b span, .chat-list-heading > div > span) {
+  color: var(--primary);
+  background-image: none;
+  text-shadow: none;
+  filter: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.btn-primary, .chat-send-button, .ai-composer .btn-primary,
+  .modal-submit) {
+  color: #F7F7F5;
+  border-color: var(--primary);
+  background-color: var(--primary);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.btn-primary, .chat-send-button, .ai-composer .btn-primary,
+  .modal-submit):hover {
+  color: #F7F7F5;
+  border-color: var(--primary-hover);
+  background-color: var(--primary-hover);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.btn-ghost, .icon-btn, .chat-theme-toggle,
+  .chat-settings-button, .chat-back-button, .modal-close, .ai-clear, .ai-mobile-close,
+  .ai-history-toggle, .ai-modal-close, .community-code button,
+  .community-post-actions button, .community-comment-actions button, .platform-remove) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.btn-ghost, .icon-btn, .chat-theme-toggle,
+  .chat-settings-button, .chat-back-button, .modal-close, .community-post-actions button,
+  .community-comment-actions button):hover,
+html[data-theme] body:not(.admin-page) :is(.desktop-nav a, .mobile-nav-link,
+  .authenticated-menu a, .conversation-item, .ai-history-list button):is(:hover, .active, .selected) {
+  color: var(--primary);
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(
+  input:not([type="checkbox"]):not([type="radio"]), textarea, select,
+  .search-box, .modal-input, .platform-search, .platform-filters input,
+  .platform-filters select, .platform-form-grid input, .platform-form-grid select,
+  .platform-form-grid textarea, .platform-apply textarea, .platform-applicant select,
+  .community-field input, .community-field select, .community-comment-form input,
+  .community-edit textarea, .community-search input, .community-feed-tools select,
+  .community-code-entry textarea, .conversation-search, .chat-composer > input:first-child,
+  .chat-settings select, .chat-settings-overlay select, .ai-composer
+) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--input-background);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(input, textarea, select)::placeholder,
+html[data-theme] body:not(.admin-page) .conversation-search input::placeholder {
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+html[data-theme] body:not(.admin-page) select option,
+html[data-theme] body.admin-page select option {
+  color: var(--text-primary);
+  background: var(--surface-elevated);
+}
+
+html[data-theme] body:not(.admin-page) :is(input, textarea, select, button, a):focus-visible,
+html[data-theme] body:not(.admin-page) :is(.search-box, .platform-search, .conversation-search):focus-within {
+  outline-color: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+html[data-theme] body:not(.admin-page) :is(.chat-message-bubble, .ai-message-content) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) .chat-message-row.outgoing .chat-message-bubble {
+  color: #F7F7F5;
+  border-color: var(--primary);
+  background-color: var(--primary);
+  background-image: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.chat-message-bubble p, .ai-markdown,
+  .ai-message-content > span, .ai-message.user .ai-message-content > span) {
+  color: var(--text-primary);
+}
+
+html[data-theme] body:not(.admin-page) :is(.ai-availability, .ai-new-chat,
+  .ai-signin-button, .ai-history-signin, .ai-welcome > div button,
+  .ai-code-block, .ai-markdown code:not(.ai-code-block code), .community-category,
+  .community-saved-filter, .platform-tags span, .platform-status,
+  .notification-group > h2 span, .conversation-unread, .nav-badge) {
+  color: var(--primary);
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.platform-error, .community-error,
+  .community-state-error, .ai-error, .chat-inline-error, .settings-error) {
+  color: var(--error) !important;
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.platform-success, .platform-warning,
+  .admin-warning, .warning-message) {
+  color: var(--primary) !important;
+}
+
+html[data-theme] body:not(.admin-page) :is(.ambient .orb, .visual-noise, .grid-glow, .stars,
+  .visual-ring, .core, .float-card, .seed-visual, .seed-visual > div, .brand-mark,
+  .feature-icon, .community-avatar, .platform-avatar, .ai-typing span) {
+  background-image: none;
+  box-shadow: none;
+  filter: none;
+  text-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.ambient .orb, .visual-noise, .grid-glow, .stars) {
+  opacity: .025;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) .ambient .orb {
+  background: var(--primary);
+  filter: none;
+}
+
+html[data-theme] body:not(.admin-page) .core > svg {
+  color: var(--primary);
+  background-color: transparent;
+}
+
+html[data-theme] body:not(.admin-page) .stars i {
+  color: var(--primary);
+  background-color: var(--primary);
+}
+
+html[data-theme] body:not(.admin-page) :is(.core span, .seed-visual > div,
+  .seed-visual > span, .feature-card > svg, .service-card svg, .developer-card svg, .role-card svg,
+  .app-card svg, .float-card svg) {
+  color: var(--text-primary);
+}
+
+html[data-theme] body:not(.admin-page) :is(.core small, .hero-bottom,
+  .hero-bottom span, .hero-bottom i) {
+  color: var(--text-secondary);
+}
+
+html[data-theme] body:not(.admin-page) .hero-bottom i {
+  background-color: var(--border);
+}
+
+html[data-theme] body:not(.admin-page) :is(.visual-ring, .core, .float-card, .seed-visual,
+  .seed-visual > div, .brand-mark, .feature-icon, .platform-avatar, .community-avatar) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+}
+
+html[data-theme] body:not(.admin-page) .modal-backdrop,
+html[data-theme] body:not(.admin-page) .ai-overlay {
+  background: rgba(17, 19, 21, .72);
+  backdrop-filter: blur(10px);
+}
+
+html[data-theme] body.admin-page :is(.admin-shell, .admin-main, .admin-content) {
+  color: var(--text-primary);
+  background: var(--page-background);
+  background-image: none;
+}
+
+html[data-theme] body.admin-page :is(.admin-login-screen, .admin-login-glow) {
+  color: var(--text-primary);
+  background: var(--page-background);
+  background-image: none;
+  box-shadow: none;
+  filter: none;
+}
+
+html[data-theme] body.admin-page .admin-login-card {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--surface-elevated);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body.admin-page * {
+  color: var(--text-primary);
+}
+
+html[data-theme] body.admin-page :is(p, small, label, time, .admin-muted,
+  .admin-side-label, .admin-page-heading p, .admin-section-description,
+  .admin-metric > span, .admin-metric > small, .admin-integration-card p,
+  .admin-settings-card p, .admin-empty span, .admin-loading, .admin-table th,
+  .admin-table td, .admin-recent-user small, .admin-queue-item small) {
+  color: var(--text-secondary);
+}
+
+html[data-theme] body.admin-page :is(.admin-eyebrow, .admin-text-button,
+  .admin-card-heading > svg, .admin-integration-icon, .admin-metric-icon,
+  .admin-report-icon, .admin-verified, .admin-queue-item > svg) {
+  color: var(--primary);
+}
+
+html[data-theme] body.admin-page :is(.admin-sidebar, .admin-topbar, .admin-panel,
+  .admin-card, .admin-table-wrap, .admin-modal, .admin-sidebar-bottom,
+  .admin-metric, .admin-content-card, .admin-settings-card, .admin-integration-card) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--surface-elevated);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body.admin-page :is(.admin-side-nav button, .admin-side-label,
+  .admin-sidebar button, .admin-sidebar a) {
+  color: var(--text-secondary);
+}
+
+html[data-theme] body.admin-page .admin-side-nav button:is(:hover, .active) {
+  color: var(--primary);
+  border-color: var(--border);
+  background: var(--surface);
+  box-shadow: inset 2px 0 var(--primary);
+}
+
+html[data-theme] body.admin-page input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme] body.admin-page textarea,
+html[data-theme] body.admin-page select {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--input-background);
+}
+
+html[data-theme] body.admin-page :is(.admin-primary, .admin-submit, .admin-button-primary,
+  .admin-primary-button) {
+  color: #F7F7F5;
+  border-color: var(--primary);
+  background: var(--primary);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] :is(.chat-fullscreen, .chat-signin) :is(p, small, .chat-top-link,
+  .conversation-copy small, .active-chat-person > span) {
+  color: var(--text-secondary);
+}
+
+html[data-theme] .chat-fullscreen :is(.chat-topbar, .chat-conversations, .active-chat-header,
+  .chat-composer, .chat-settings, .chat-settings-overlay) {
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] .chat-fullscreen :is(.chat-conversation, .conversation-item, .chat-message-history) {
+  color: var(--text-primary);
+  background-color: var(--page-background);
+  background-image: none;
+}
+
+html[data-theme] .chat-fullscreen .conversation-item:is(:hover, .selected) {
+  background-color: var(--surface-elevated);
+}
+
+html[data-theme] .chat-fullscreen :is(.conversation-search, .chat-composer > input:first-child,
+  .chat-settings select, .chat-settings-overlay select) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface);
+}
+
+html[data-theme] .chat-fullscreen .chat-message-bubble {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+}
+
+html[data-theme] .chat-fullscreen .chat-message-row.outgoing .chat-message-bubble {
+  color: #F7F7F5;
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+html[data-theme] .chat-fullscreen .chat-message-bubble p {
+  color: inherit;
+  font-size: 15px;
+}
+
+html[data-theme] .chat-fullscreen .chat-send-button {
+  color: #F7F7F5;
+  background-color: var(--primary);
+  background-image: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.desktop-nav a, .btn, .btn-lg,
+  .chat-top-link, .community-field, .community-post-actions button,
+  .community-comment-actions button, .platform-filters label, .platform-form-grid label,
+  .platform-apply label, .chat-settings, .chat-settings-overlay) {
+  font-size: 13px;
+}
+
+html[data-theme] body:not(.admin-page) :is(.page-caption, .section-heading p,
+  .split-callout p, .feature-card p, .service-card p, .developer-card p, .app-card span,
+  .job-card p, .story-card p, .contact-card p, .community-post-content,
+  .community-comment-body p, .community-reply p, .chat-welcome p, .chat-empty p,
+  .ai-markdown, .chat-message-bubble p) {
+  font-size: 15px;
+}
+
+html[data-theme] body:not(.admin-page) :is(input, textarea, select, .community-search input,
+  .community-field input, .community-field select, .chat-composer > input:first-child,
+  .ai-composer textarea) {
+  font-size: 16px;
+}
+
+html[data-theme] {
+  --primary: #8C6A43;
+  --primary-hover: #705333;
+  --secondary: #6B6B6B;
+  --accent: #8C6A43;
+  --text-secondary: #6B6B6B;
+  --text-muted: #6B6B6B;
+  --border: #D9D7D2;
+  --line: var(--border);
+  --purple: var(--primary);
+  --cyan: var(--primary);
+}
+
+html[data-theme="light"] {
+  --page-background: #F7F7F5;
+  --page-bg: var(--page-background);
+  --surface: #F7F7F5;
+  --surface-elevated: rgba(217, 215, 210, .24);
+  --surface-raised: var(--surface-elevated);
+  --input-background: #F7F7F5;
+  --text-primary: #111315;
+  --success: #8C6A43;
+  --warning: #8C6A43;
+  --error: #111315;
+  --notification: #8C6A43;
+  --focus-ring: rgba(140, 106, 67, .28);
+}
+
+html[data-theme="dark"] {
+  --page-background: #111315;
+  --page-bg: var(--page-background);
+  --surface: #111315;
+  --surface-elevated: #2A2A28;
+  --surface-raised: var(--surface-elevated);
+  --input-background: #2A2A28;
+  --border: #2A2A28;
+  --line: var(--border);
+  --text-primary: #F7F7F5;
+  --success: #8C6A43;
+  --warning: #8C6A43;
+  --error: #F7F7F5;
+  --notification: #8C6A43;
+  --focus-ring: rgba(140, 106, 67, .42);
+}
+
+html[data-theme],
+html[data-theme] body,
+html[data-theme] body:not(.admin-page),
+html[data-theme] body.admin-page,
+html[data-theme] #root {
+  color: var(--text-primary);
+  background-color: var(--page-background);
+}
+
+html[data-theme] body:not(.admin-page) {
+  background-image: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.home, .page, .hero, .section-space,
+  .section-band, .page-inner, main) {
+  color: var(--text-primary);
+  background-color: var(--page-background);
+  background-image: none;
+}
+
+html[data-theme] body:not(.admin-page) .section-band {
+  background-color: var(--surface-elevated);
+}
+
+html[data-theme] body:not(.admin-page) :is(.header, .mobile-menu, .footer,
+  .authenticated-menu, .mobile-links-list, .global-theme-toggle, .active-chat-header,
+  .chat-topbar, .chat-composer, .ai-chat-header, .social-icons a) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface);
+  background-image: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(
+  .feature-card, .service-card, .developer-card, .role-card, .job-card, .story-card,
+  .contact-card, .app-card, .admin-panel, .project-board, .composer, .post,
+  .empty-feed, .messenger, .profile-form, .platform-card, .platform-feedback,
+  .community-composer, .community-post, .community-side-card, .community-state,
+  .modal, .ai-modal, .ai-modal-shell, .ai-workspace, .chat-settings,
+  .chat-settings-overlay, .notification-card, .platform-record-fields,
+  .verification-request, .admin-panel-card, .admin-stat-card, .admin-table-wrap,
+  .chat-conversations, .ai-history, .community-reply, .platform-record
+) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.chat-conversation, .ai-chat-area, .ai-messages) {
+  color: var(--text-primary);
+  background-color: var(--page-background);
+  background-image: none;
+}
+
+html[data-theme] :is(.chat-fullscreen, .chat-signin) {
+  color: var(--text-primary);
+  background-color: var(--page-background);
+  background-image: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(p, small, time, label, .page-caption,
+  .hero p, .section-heading p, .split-callout p, .feature-card p, .service-card p,
+  .developer-card p, .app-card span, .job-card p, .story-card p, .contact-card p,
+  .platform-card p, .platform-meta, .platform-meta-row, .platform-hint, .platform-back,
+  .community-post-content, .community-author small, .community-comment-body small,
+  .community-reply small, .community-comment-body p, .community-reply p,
+  .community-state, .community-state p, .community-side-card p, .chat-list-empty,
+  .chat-welcome p, .chat-empty p, .conversation-copy small, .active-chat-person > span,
+  .notification-card-copy small, .notification-card-copy time, .notification-empty,
+  .ai-history-label, .ai-history-empty, .ai-chat-header span, .ai-availability p,
+  .ai-composer small, .ai-code-block > div, .footer-copy, .footer-bottom) {
+  color: var(--text-secondary);
+}
+
+html[data-theme] body:not(.admin-page) :is(h1, h2, h3, h4, h5, h6, strong, b,
+  .brand strong, .chat-brand, .chat-list-heading h1, .active-chat-person h2,
+  .notification-group > h2, .notification-card-copy > b, .community-author b,
+  .community-state h2, .community-side-card h2, .platform-card h2, .platform-card h3,
+  .platform-record b, .platform-job-bottom > b, .ai-markdown h2, .ai-markdown h3,
+  .ai-markdown h4, .modal h2) {
+  color: var(--text-primary);
+}
+
+html[data-theme] body:not(.admin-page) :is(a, .hero-links a, .hero-links button,
+  .platform-record a, .platform-links a, .platform-hirer-message,
+  .platform-applicant-message, .community-post-link, .community-tags span,
+  .community-side-card > a, .community-code-entry, .community-code-entry summary,
+  .ai-back-link, .view-chat-profile, .switch-mode) {
+  color: var(--primary);
+}
+
+html[data-theme] body:not(.admin-page) :is(.hero h1 span, .eyebrow, .page-kicker,
+  .status-pill, .feature-icon, .brand-mark, .ai-brand-mark, .ai-welcome > span,
+  .notification-type-icon, .chat-brand b span, .chat-list-heading > div > span) {
+  color: var(--primary);
+  background-image: none;
+  text-shadow: none;
+  filter: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.btn-primary, .chat-send-button,
+  .ai-composer .btn-primary, .modal-submit) {
+  color: #F7F7F5;
+  border-color: var(--primary);
+  background-color: var(--primary);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.btn-primary, .chat-send-button,
+  .ai-composer .btn-primary, .modal-submit):hover {
+  color: #F7F7F5;
+  border-color: var(--primary-hover);
+  background-color: var(--primary-hover);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.btn-ghost, .icon-btn, .chat-theme-toggle,
+  .chat-settings-button, .chat-back-button, .modal-close, .ai-clear, .community-code button,
+  .community-post-actions button, .community-comment-actions button, .platform-remove) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.btn-ghost, .icon-btn, .chat-theme-toggle,
+  .chat-settings-button, .chat-back-button, .modal-close, .community-post-actions button,
+  .community-comment-actions button):hover,
+html[data-theme] body:not(.admin-page) :is(.desktop-nav a, .mobile-nav-link,
+  .authenticated-menu a, .conversation-item, .ai-history-list button):is(:hover, .active, .selected) {
+  color: var(--primary);
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(
+  input:not([type="checkbox"]):not([type="radio"]), textarea, select, .search-box,
+  .modal-input, .platform-search, .platform-filters input, .platform-filters select,
+  .platform-form-grid input, .platform-form-grid select, .platform-form-grid textarea,
+  .platform-apply textarea, .platform-applicant select, .community-field input,
+  .community-field select, .community-comment-form input, .community-edit textarea,
+  .community-search input, .community-feed-tools select, .community-code-entry textarea,
+  .conversation-search, .chat-composer > input:first-child, .chat-settings select,
+  .chat-settings-overlay select, .ai-composer
+) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--input-background);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(input, textarea, select)::placeholder,
+html[data-theme] body:not(.admin-page) .conversation-search input::placeholder {
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+html[data-theme] body:not(.admin-page) :is(input, textarea, select, button, a):focus-visible,
+html[data-theme] body:not(.admin-page) :is(.search-box, .platform-search,
+  .conversation-search):focus-within {
+  outline-color: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+html[data-theme] body:not(.admin-page) :is(.chat-message-bubble, .ai-message-content) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) .chat-message-row.outgoing .chat-message-bubble,
+html[data-theme] .chat-fullscreen .chat-message-row.outgoing .chat-message-bubble {
+  color: #F7F7F5;
+  border-color: var(--primary);
+  background-color: var(--primary);
+  background-image: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.chat-message-bubble p, .ai-markdown,
+  .ai-message-content > span, .ai-message.user .ai-message-content > span) {
+  color: var(--text-primary);
+}
+
+html[data-theme] body:not(.admin-page) :is(.ai-availability, .ai-new-chat,
+  .ai-signin-button, .ai-history-signin, .ai-welcome > div button,
+  .ai-code-block, .ai-markdown code:not(.ai-code-block code), .community-category,
+  .community-saved-filter, .platform-tags span, .platform-status,
+  .notification-group > h2 span, .conversation-unread, .nav-badge) {
+  color: var(--primary);
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.platform-error, .community-error,
+  .community-state-error, .ai-error, .chat-inline-error, .settings-error) {
+  color: var(--error) !important;
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.platform-success, .platform-warning,
+  .admin-warning, .warning-message) {
+  color: var(--primary) !important;
+}
+
+html[data-theme] body:not(.admin-page) :is(.ambient .orb, .visual-noise, .grid-glow, .stars) {
+  opacity: .025;
+  box-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.visual-ring, .core, .float-card, .seed-visual,
+  .seed-visual > div, .brand-mark, .feature-icon, .platform-avatar, .community-avatar) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+  box-shadow: none;
+  filter: none;
+  text-shadow: none;
+}
+
+html[data-theme] body:not(.admin-page) .brand-mark img {
+  background: transparent;
+}
+
+html[data-theme] body:not(.admin-page) .modal-backdrop,
+html[data-theme] body:not(.admin-page) .ai-overlay {
+  background: rgba(17, 19, 21, .72);
+  backdrop-filter: blur(10px);
+}
+
+html[data-theme] body.admin-page :is(.admin-shell, .admin-main, .admin-content) {
+  color: var(--text-primary);
+  background: var(--page-background);
+  background-image: none;
+}
+
+html[data-theme] body.admin-page :is(.admin-sidebar, .admin-topbar, .admin-panel,
+  .admin-card, .admin-table-wrap, .admin-modal, .admin-sidebar-bottom) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--surface-elevated);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] body.admin-page :is(.admin-side-nav button, .admin-side-label,
+  .admin-sidebar button, .admin-sidebar a) {
+  color: var(--text-secondary);
+}
+
+html[data-theme] body.admin-page .admin-side-nav button:is(:hover, .active) {
+  color: var(--primary);
+  border-color: var(--border);
+  background: var(--surface);
+  box-shadow: inset 2px 0 var(--primary);
+}
+
+html[data-theme] body.admin-page :is(input, textarea, select) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--input-background);
+}
+
+html[data-theme] body.admin-page :is(.admin-primary, .admin-submit, .admin-button-primary) {
+  color: #F7F7F5;
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: none;
+}
+
+html[data-theme] .chat-fullscreen :is(.chat-topbar, .chat-conversations, .active-chat-header,
+  .chat-composer, .chat-settings, .chat-settings-overlay) {
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-theme] .chat-fullscreen :is(.chat-conversation, .conversation-item, .chat-message-history) {
+  color: var(--text-primary);
+  background-color: var(--page-background);
+  background-image: none;
+}
+
+html[data-theme] .chat-fullscreen .conversation-item:is(:hover, .selected) {
+  background-color: var(--surface-elevated);
+}
+
+html[data-theme] .chat-fullscreen :is(.conversation-search, .chat-composer > input:first-child,
+  .chat-settings select, .chat-settings-overlay select) {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface);
+}
+
+html[data-theme] .chat-fullscreen .chat-message-bubble {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background-color: var(--surface-elevated);
+  background-image: none;
+}
+
+html[data-theme] .chat-fullscreen .chat-message-bubble p {
+  color: inherit;
+  font-size: 15px;
+}
+
+html[data-theme] .chat-fullscreen .chat-send-button {
+  color: #F7F7F5;
+  background-color: var(--primary);
+  background-image: none;
+}
+
+html[data-theme] body:not(.admin-page) :is(.desktop-nav a, .btn, .btn-lg,
+  .chat-top-link, .community-field, .community-post-actions button,
+  .community-comment-actions button, .platform-filters label, .platform-form-grid label,
+  .platform-apply label, .chat-settings, .chat-settings-overlay) {
+  font-size: 13px;
+}
+
+html[data-theme] body:not(.admin-page) :is(.page-caption, .section-heading p,
+  .split-callout p, .feature-card p, .service-card p, .developer-card p, .app-card span,
+  .job-card p, .story-card p, .contact-card p, .community-post-content,
+  .community-comment-body p, .community-reply p, .chat-welcome p, .chat-empty p,
+  .ai-markdown, .chat-message-bubble p) {
+  font-size: 15px;
+}
+
+html[data-theme] body:not(.admin-page) :is(input, textarea, select,
+  .community-search input, .community-field input, .community-field select,
+  .chat-composer > input:first-child, .ai-composer textarea) {
+  font-size: 16px;
+}
+
+html[data-theme] body :where(
+  p, a, button, label, input, textarea, select, small, time, li, summary,
+  dt, dd, th, td, legend, output, blockquote, figcaption, caption
+) {
+  font-weight: 500;
+}
+
+html[data-theme] body span:not(h1 span):not(h2 span):not(h3 span):not(h4 span):not(h5 span):not(h6 span) {
+  font-weight: 500;
+}
+
+html[data-theme] body {
+  font-weight: 500;
+}
+
+html[data-theme] body :where(
+  button, .desktop-nav a, .mobile-menu a, .mobile-nav-link, .authenticated-menu a,
+  .btn, .btn-lg, .icon-btn, .global-theme-toggle, .chat-top-link,
+  .chat-theme-toggle, .chat-settings-button, .chat-back-button,
+  .community-post-actions button, .community-comment-actions button,
+  .admin-side-nav button, .admin-icon-button, .admin-primary-button,
+  .admin-secondary-button, .admin-small-button, .admin-text-button,
+  .ai-new-chat, .ai-history-list button, .ai-signin-button, .ai-history-signin
+) {
+  font-weight: 600;
+}
+
+html[data-theme] body :where(
+  label, .community-field, .platform-filters label, .platform-form-grid label,
+  .platform-apply label, .admin-website-form label, .admin-login-card label,
+  .admin-side-label, .admin-eyebrow, .notification-group > h2 span,
+  .community-category, .platform-tags span, .platform-status,
+  .chat-settings label, .chat-settings-overlay label
+) {
+  font-weight: 600;
+}
+
+html[data-theme] body :where(
+  .page-caption, .hero p, .section-heading p, .split-callout p,
+  .feature-card p, .service-card p, .developer-card p, .app-card span,
+  .job-card p, .story-card p, .contact-card p, .footer-copy, .footer-bottom,
+  .community-post-content, .community-comment-body p, .community-reply p,
+  .community-author small, .community-comment-body small, .community-reply small,
+  .community-side-card p, .community-state, .platform-meta, .platform-meta-row,
+  .platform-hint, .platform-back, .platform-feedback, .chat-welcome p,
+  .chat-empty p, .chat-message-bubble p, .chat-message-bubble footer,
+  .ai-markdown, .ai-history-empty, .ai-history-label, .ai-availability p,
+  .ai-composer small, .notification-card-copy small, .notification-card-copy time,
+  .admin-page-heading p, .admin-section-description, .admin-report-main p,
+  .admin-report-meta, .admin-empty span, .admin-table th, .admin-table td
+) {
+  font-weight: 500;
+}
+
+html[data-theme] body :where(input, textarea, select)::placeholder,
+html[data-theme] body :where(input, textarea)::placeholder {
+  font-weight: 500;
+}
+
+html[data-theme] body input,
+html[data-theme] body textarea,
+html[data-theme] body select {
+  font-weight: 500 !important;
+}
+
+html[data-theme] body input::placeholder,
+html[data-theme] body textarea::placeholder {
+  font-weight: 500 !important;
+}
+
+html[data-theme] body .chat-message-bubble p,
+html[data-theme] body .ai-markdown,
+html[data-theme] body .community-post-content,
+html[data-theme] body .community-comment-body p,
+html[data-theme] body .community-reply p,
+html[data-theme] body .profile-bio,
+html[data-theme] body .profile-about {
+  font-weight: 600;
 }

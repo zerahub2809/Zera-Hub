@@ -74,7 +74,8 @@ function CodeBlock({ language, code }: { language: string; code: string }) {
 }
 
 export function ZeraAIWorkspace({ user, site = null, initialPrompt = '', initialContext = '', isModal = false, onClose, onAuth }: Props) {
-  const signedIn = Boolean(user && localStorage.getItem('zera_token'));
+  const [currentUser, setCurrentUser] = useState<Props['user']>(user);
+  const signedIn = Boolean((currentUser || user) && localStorage.getItem('zera_token'));
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [conversations, setConversations] = useState<Omit<Conversation, 'messages'>[]>([]);
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -87,38 +88,66 @@ export function ZeraAIWorkspace({ user, site = null, initialPrompt = '', initial
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    setCurrentUser(user);
+  }, [user]);
+
+  useEffect(() => {
+    const handleAuthChange = () => {
+      const stored = localStorage.getItem('zera_user');
+      if (stored) {
+        try {
+          setCurrentUser(JSON.parse(stored));
+        } catch {
+          // ignore
+        }
+      }
+      setError('');
+    };
+    window.addEventListener('zera-authenticated', handleAuthChange);
+    window.addEventListener('storage', handleAuthChange);
+    return () => {
+      window.removeEventListener('zera-authenticated', handleAuthChange);
+      window.removeEventListener('storage', handleAuthChange);
+    };
+  }, []);
+
+  useEffect(() => {
     if (isModal) return;
     document.title = 'ZERA AI · ZERA HUB';
     const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     if (description) description.content = 'A general-purpose assistant for learning, problem-solving, and software development inside ZERA HUB.';
   }, [isModal]);
+
   useEffect(() => { setMessage(initialPrompt); setContext(initialContext); }, [initialPrompt, initialContext]);
+
   useEffect(() => {
     let active = true;
     fetch(`${API}/api/ai/status`).then((response) => response.json()).then((result) => {
       if (active) setConfigured(Boolean(result.configured));
     }).catch(() => { if (active) setConfigured(false); });
+
     if (signedIn) {
+      setLoadingHistory(true);
       request<Omit<Conversation, 'messages'>[]>('/conversations')
         .then((rows) => { if (active) setConversations(rows); })
         .catch((reason: Error & { code?: string }) => {
           if (!active) return;
           if (reason.code === 'AUTH_REQUIRED') {
-            setError('Your sign-in session is missing or expired. Sign in again to use ZERA AI.');
+            setError('Your sign-in session has expired. Sign in again to use ZERA AI.');
             onAuth?.('signin');
           } else setError(reason.message);
         })
         .finally(() => { if (active) setLoadingHistory(false); });
     } else {
       setLoadingHistory(false);
-      setError(user ? 'Your sign-in session is missing. Sign in again to use ZERA AI.' : '');
+      setConversations([]);
     }
     return () => { active = false; };
-  }, [user, signedIn]);
+  }, [user, currentUser, signedIn]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [conversation?.messages, sending]);
 
   const startNew = async () => {
-    if (!signedIn) { setError('Sign in to save conversation history.'); onAuth?.('signin'); return; }
+    if (!signedIn) { onAuth?.('signin'); return; }
     setError('');
     try {
       const created = await request<Conversation>('/conversations', { method: 'POST', body: JSON.stringify({ title: 'New conversation' }) });

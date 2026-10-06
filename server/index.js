@@ -26,38 +26,86 @@ const distDir=path.join(root,'dist');
 const frontendIndex=path.join(distDir,'index.html');
 const dataFile=path.join(__dirname,'data','db.json');
 const uploadDir=path.join(__dirname,'uploads');
-const useMongoStorage=process.env.NODE_ENV==='production'||process.env.RENDER==='true'||Boolean(process.env.RENDER_SERVICE_ID);
-const initialData={users:[],messages:[],posts:[],reports:[],moderationActions:[],notifications:[],pushSubscriptions:[],siteConfig:{brandName:'ZERA HUB',tagline:'Grow Ideas. Build Tomorrow.',logoUrl:'/assets/WhatsApp%20Image%202026-09-21%20at%2010.07.22%20AM.jpeg',contactEmail:'zerahub@outlook.com',socials:{facebook:'https://www.facebook.com/share/1BDT7JfvXm/',instagram:'https://www.instagram.com/zerahub2026/',x:'https://x.com/zerahub2809'}}};
-let productionData=null;
+const initialData={users:[],messages:[],posts:[],reports:[],moderationActions:[],notifications:[],pushSubscriptions:[],connections:[],jobs:[],applications:[],aiConversations:[],adminLoginActivity:[],adminAuditLogs:[],siteConfig:{brandName:'ZERA HUB',tagline:'Grow Ideas. Build Tomorrow.',logoUrl:'/assets/WhatsApp%20Image%202026-09-21%20at%2010.07.22%20AM.jpeg',contactEmail:'zerahub@outlook.com',socials:{facebook:'https://www.facebook.com/share/1BDT7JfvXm/',instagram:'https://www.instagram.com/zerahub2026/',x:'https://x.com/zerahub2809'}}};
+let memoryState=null;
 let mongoStateCollection=null;
 fs.mkdirSync(uploadDir,{recursive:true});
-const load=()=>useMongoStorage?JSON.parse(JSON.stringify(productionData)):JSON.parse(fs.readFileSync(dataFile,'utf8'));
-const save=async(db)=>{if(!useMongoStorage){fs.writeFileSync(dataFile,JSON.stringify(db,null,2));return;}await mongoStateCollection.replaceOne({_id:'primary'}, {...db,_id:'primary'},{upsert:true});productionData=db;};
+
+function readLocalData(){
+  try{
+    if(fs.existsSync(dataFile)){
+      const parsed=JSON.parse(fs.readFileSync(dataFile,'utf8'));
+      return {...initialData,...parsed,siteConfig:{...initialData.siteConfig,...(parsed.siteConfig||{})}};
+    }
+  }catch(err){
+    console.error('Error reading db.json:',err.message);
+  }
+  return JSON.parse(JSON.stringify(initialData));
+}
+
+memoryState=readLocalData();
+
+const load=()=>{
+  if(!memoryState)memoryState=readLocalData();
+  return memoryState;
+};
+
+const save=async(db)=>{
+  memoryState=db;
+  try{
+    fs.writeFileSync(dataFile,JSON.stringify(db,null,2));
+  }catch(err){
+    console.error('Local db save error:',err.message);
+  }
+  if(mongoStateCollection){
+    try{
+      await mongoStateCollection.replaceOne({_id:'primary'},{...db,_id:'primary'},{upsert:true});
+    }catch(err){
+      console.error('MongoDB sync save error:',err.message);
+    }
+  }
+};
+
 const app=express();
 const httpServer=createServer(app);
-const allowedClientOrigins=new Set([
+
+const configuredOrigins=new Set([
   'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:4173',
   'https://zera-hub0.vercel.app',
   ...(process.env.CLIENT_URL||'').split(',').map(origin=>origin.trim()).filter(Boolean),
+  ...(process.env.FRONTEND_URL||'').split(',').map(origin=>origin.trim()).filter(Boolean),
 ]);
-const allowClientOrigin=(origin,callback)=>callback(null,!origin||allowedClientOrigins.has(origin));
-const io=new Server(httpServer,{cors:{origin:allowClientOrigin,methods:['GET','POST']}});
+
+function isAllowedOrigin(origin){
+  if(!origin)return true;
+  if(configuredOrigins.has(origin))return true;
+  if(origin.startsWith('http://localhost:')||origin.startsWith('http://127.0.0.1:'))return true;
+  if(/^https:\/\/([a-zA-Z0-9_-]+\.)*vercel\.app$/.test(origin))return true;
+  if(/^https:\/\/([a-zA-Z0-9_-]+\.)*onrender\.com$/.test(origin))return true;
+  return false;
+}
+
+const allowClientOrigin=(origin,callback)=>callback(null,isAllowedOrigin(origin));
+const io=new Server(httpServer,{cors:{origin:allowClientOrigin,methods:['GET','POST','PUT','PATCH','DELETE','OPTIONS'],credentials:true}});
 const PORT=Number(process.env.PORT||4000);
-const JWT_SECRET=process.env.JWT_SECRET||'development-only-change-me';
+const JWT_SECRET=process.env.JWT_SECRET||'ZERA_HUB_9vK7xQ2mL8pR4tY6wN3cF8sJ1dG5hB0zA7uE2kP9xV6mT4qW8rC3yL5nS0fH7';
 const vapidPublicKey=process.env.VAPID_PUBLIC_KEY||'';
 const vapidPrivateKey=process.env.VAPID_PRIVATE_KEY||'';
 let webPush=null;
-try{webPush=(await import('web-push')).default;}catch(error){console.error('Web Push is unavailable until the web-push package is installed:',error.message);}
+try{webPush=(await import('web-push')).default;}catch(error){/* optional */}
 if(vapidPublicKey&&vapidPrivateKey&&webPush)webPush.setVapidDetails(process.env.VAPID_SUBJECT||'mailto:zerahub@outlook.com',vapidPublicKey,vapidPrivateKey);
 const asyncRoute=handler=>(req,res,next)=>Promise.resolve(handler(req,res,next)).catch(next);
-app.use(helmet({crossOriginResourcePolicy:{policy:'cross-origin'}}));
-app.use(cors({origin:allowClientOrigin}));
-app.use(express.json({limit:'1mb'}));
+app.use(helmet({crossOriginResourcePolicy:{policy:'cross-origin'},crossOriginOpenerPolicy:false}));
+app.use(cors({origin:allowClientOrigin,credentials:true,methods:['GET','POST','PUT','PATCH','DELETE','OPTIONS'],allowedHeaders:['Content-Type','Authorization','Accept','X-Requested-With']}));
+app.options('*',cors({origin:allowClientOrigin,credentials:true}));
+app.use(express.json({limit:'2mb'}));
 app.use('/uploads',express.static(uploadDir));
 app.use('/assets',express.static(root));
-const authLimiter=rateLimit({windowMs:15*60*1000,max:100,standardHeaders:true,legacyHeaders:false});
-const aiLimiter=rateLimit({windowMs:15*60*1000,max:30,standardHeaders:true,legacyHeaders:false});
-const reportLimiter=rateLimit({windowMs:15*60*1000,max:15,standardHeaders:true,legacyHeaders:false});
+const authLimiter=rateLimit({windowMs:15*60*1000,max:200,standardHeaders:true,legacyHeaders:false});
+const aiLimiter=rateLimit({windowMs:15*60*1000,max:100,standardHeaders:true,legacyHeaders:false});
+const reportLimiter=rateLimit({windowMs:15*60*1000,max:30,standardHeaders:true,legacyHeaders:false});
 app.use('/api/auth',authLimiter);
 app.use('/api/admin/login',authLimiter);
 app.use('/api/ai',aiLimiter,createAIRouter({auth,load,save}));
@@ -145,16 +193,22 @@ function adminOverview(db){
   };
 }
 app.use('/api/platform',createPlatformRouter({auth,load,save,publicUser,notifyUser}));
-app.get('/api/health',(req,res)=>res.json({ok:true,name:'ZERA HUB API'}));
+app.get('/api/health',(req,res)=>res.json({ok:true,name:'ZERA HUB API',timestamp:new Date().toISOString()}));
 app.get('/api/site-config',(req,res)=>res.json(load().siteConfig));
+app.get('/api/auth/me',auth,(req,res)=>{
+  const db=load();
+  const user=db.users.find(u=>u.id===req.user.id);
+  if(!user)return res.status(404).json({error:'User not found'});
+  res.json({user:publicUser(user)});
+});
 app.post('/api/presence',auth,asyncRoute(async(req,res)=>{const db=load();const user=db.users.find(item=>item.id===req.user.id);if(!user)return res.status(404).json({error:'User not found'});user.lastSeenAt=new Date().toISOString();await save(db);res.json({lastSeenAt:user.lastSeenAt});}));
 app.get('/api/notifications',auth,(req,res)=>{const db=load();res.json((db.notifications||[]).filter(item=>item.userId===req.user.id).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,100));});
 app.patch('/api/notifications/read',auth,asyncRoute(async(req,res)=>{const fromUserId=req.body?.fromUserId;if(fromUserId!==undefined&&typeof fromUserId!=='string')return res.status(400).json({error:'fromUserId must be text'});const db=load();const now=new Date().toISOString();for(const item of db.notifications||[])if(item.userId===req.user.id&&!item.readAt&&(!fromUserId||(item.type==='message'&&item.data?.fromUserId===fromUserId)))item.readAt=now;await save(db);res.json({ok:true});}));
 app.get('/api/push/public-key',(req,res)=>res.json({publicKey:vapidPublicKey&&webPush?vapidPublicKey:null}));
 app.post('/api/push/subscribe',auth,asyncRoute(async(req,res)=>{if(!vapidPublicKey||!vapidPrivateKey||!webPush)return res.status(503).json({error:'Browser push is not configured on this server'});const subscription=req.body?.subscription;if(!subscription||typeof subscription.endpoint!=='string'||typeof subscription.keys?.p256dh!=='string'||typeof subscription.keys?.auth!=='string')return res.status(400).json({error:'A valid push subscription is required'});const db=load();db.pushSubscriptions||=[];const current=db.pushSubscriptions.find(item=>item.userId===req.user.id&&item.subscription.endpoint===subscription.endpoint);if(current)current.subscription=subscription;else db.pushSubscriptions.push({id:crypto.randomUUID(),userId:req.user.id,subscription,createdAt:new Date().toISOString()});await save(db);res.status(201).json({ok:true});}));
 app.delete('/api/push/subscribe',auth,asyncRoute(async(req,res)=>{const endpoint=req.body?.endpoint;if(typeof endpoint!=='string')return res.status(400).json({error:'Subscription endpoint is required'});const db=load();db.pushSubscriptions=(db.pushSubscriptions||[]).filter(item=>item.userId!==req.user.id||item.subscription.endpoint!==endpoint);await save(db);res.json({ok:true});}));
-app.post('/api/auth/signup',asyncRoute(async(req,res)=>{const {name,username,email,password,accountType='developer'}=req.body||{};if(!name||!username||!email||!password)return res.status(400).json({error:'Name, username, email and password are required'});if(password.length<8)return res.status(400).json({error:'Password must be at least 8 characters'});const db=load();if(db.users.some(u=>u.email.toLowerCase()===email.toLowerCase()||u.username.toLowerCase()===username.toLowerCase()))return res.status(409).json({error:'An account with those details already exists'});const user={id:crypto.randomUUID(),name,username,email:email.toLowerCase(),passwordHash:await bcrypt.hash(password,12),accountType:accountType==='hire'?'hire':'developer',role:'user',status:'active',verified:false,bio:'',skills:[],createdAt:new Date().toISOString()};db.users.push(user);await save(db);res.status(201).json({token:tokenFor(user),user:publicUser(user)});}));
-app.post('/api/auth/login',asyncRoute(async(req,res)=>{const {email,password}=req.body||{};const db=load();const user=db.users.find(u=>u.email===String(email||'').toLowerCase());if(user?.status==='restricted'&&user.restrictedUntil&&Date.parse(user.restrictedUntil)<=Date.now()){user.status='active';user.restrictedUntil=null;await save(db);}if(!user||!(await bcrypt.compare(password||'',user.passwordHash))||user.status!=='active')return res.status(401).json({error:'Invalid email or password'});res.json({token:tokenFor(user),user:publicUser(user)});}));
+app.post('/api/auth/signup',asyncRoute(async(req,res)=>{const {name,username,email,password,accountType='developer'}=req.body||{};if(!name||!username||!email||!password)return res.status(400).json({error:'Name, username, email and password are required'});if(password.length<8)return res.status(400).json({error:'Password must be at least 8 characters'});const db=load();if(db.users.some(u=>u.email.toLowerCase()===email.toLowerCase()||u.username.toLowerCase()===username.toLowerCase()))return res.status(409).json({error:'An account with those details already exists'});const user={id:crypto.randomUUID(),name:name.trim(),username:username.trim().replace(/^@/,''),email:email.trim().toLowerCase(),passwordHash:await bcrypt.hash(password,12),accountType:accountType==='hire'?'hire':'developer',role:'user',status:'active',verified:false,bio:'',skills:[],createdAt:new Date().toISOString()};db.users.push(user);await save(db);res.status(201).json({token:tokenFor(user),user:publicUser(user)});}));
+app.post('/api/auth/login',asyncRoute(async(req,res)=>{const {email,password}=req.body||{};const db=load();const user=db.users.find(u=>u.email===String(email||'').trim().toLowerCase()||u.username.toLowerCase()===String(email||'').trim().toLowerCase());if(user?.status==='restricted'&&user.restrictedUntil&&Date.parse(user.restrictedUntil)<=Date.now()){user.status='active';user.restrictedUntil=null;await save(db);}if(!user||!(await bcrypt.compare(password||'',user.passwordHash))||user.status!=='active')return res.status(401).json({error:'Invalid email or password'});res.json({token:tokenFor(user),user:publicUser(user)});}));
 app.get('/api/users',auth,(req,res)=>{const db=load();res.json(db.users.filter(u=>u.status==='active').map(publicUser));});
 app.get('/api/users/:id',auth,(req,res)=>{const u=load().users.find(x=>x.id===req.params.id);if(!u)return res.status(404).json({error:'User not found'});res.json(publicUser(u));});
 app.patch('/api/profile',auth,asyncRoute(async(req,res)=>{const db=load();const u=db.users.find(x=>x.id===req.user.id);if(!u)return res.status(404).json({error:'User not found'});for(const k of ['name','bio','skills','avatar'])if(req.body[k]!==undefined)u[k]=req.body[k];await save(db);res.json(publicUser(u));}));
@@ -180,31 +234,41 @@ app.patch('/api/admin/site-config',admin,asyncRoute(async(req,res)=>{const db=lo
 app.post('/api/admin/logo',admin,upload.single('logo'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'Logo file required'});const db=load();db.siteConfig.logoUrl=`/uploads/${req.file.filename}`;await save(db);res.json(db.siteConfig);}));
 app.patch('/api/admin/reports/:id',admin,asyncRoute(async(req,res)=>{const db=load();const r=db.reports.find(x=>x.id===req.params.id);if(!r)return res.status(404).json({error:'Report not found'});if(!['open','reviewed','resolved'].includes(req.body.status))return res.status(400).json({error:'Report status must be open, reviewed, or resolved'});if(typeof req.body.reason!=='string'||!req.body.reason.trim())return res.status(400).json({error:'A reason is required to update a report'});const previousStatus=r.status;r.status=req.body.status;r.reviewedBy=req.user.email;r.reviewedAt=new Date().toISOString();r.reviewReason=req.body.reason.trim().slice(0,500);if(previousStatus!==r.status)recordAdminEvent(db,req,'report_status_changed',`${r.id}: ${previousStatus} to ${r.status}; ${r.reviewReason}`);await save(db);res.json(r);}));
 app.patch('/api/admin/records/:type/:id',admin,asyncRoute(async(req,res)=>{const db=load();const {type,id}=req.params;const {status,reason}=req.body||{};if(typeof reason!=='string'||!reason.trim())return res.status(400).json({error:'A reason is required for every moderation action'});let record;if(type==='job'){record=(db.jobs||[]).find(item=>item.id===id);if(!record)return res.status(404).json({error:'Job not found'});if(!['open','closed','removed'].includes(status))return res.status(400).json({error:'Job status must be open, closed, or removed'});record.status=status;}else if(type==='post'){record=(db.posts||[]).find(item=>item.id===id);if(!record)return res.status(404).json({error:'Post not found'});if(!['visible','review_required','hidden'].includes(status))return res.status(400).json({error:'Post status must be visible, review_required, or hidden'});record.moderationStatus=status;}else if(type==='comment'){let parent;for(const post of db.posts||[]){parent=(post.comments||[]).find(item=>item.id===id||(item.replies||[]).some(reply=>reply.id===id));if(parent){record=parent.id===id?parent:parent.replies.find(reply=>reply.id===id);break;}}if(!record)return res.status(404).json({error:'Comment not found'});if(!['visible','review_required','hidden'].includes(status))return res.status(400).json({error:'Comment status must be visible, review_required, or hidden'});record.moderationStatus=status;}else if(type==='application'){record=(db.applications||[]).find(item=>item.id===id);if(!record)return res.status(404).json({error:'Application not found'});if(!['Applied','Reviewing','Shortlisted','Interview','Accepted','Rejected'].includes(status))return res.status(400).json({error:'Unsupported application status'});record.status=status;record.updatedAt=new Date().toISOString();}else return res.status(400).json({error:'Unsupported moderation record type'});record.updatedAt=new Date().toISOString();db.moderationActions||=[];db.moderationActions.push({id:crypto.randomUUID(),type:`${type}_${status}`,targetId:id,reason:reason.trim().slice(0,500),adminEmail:req.user.email,createdAt:record.updatedAt});recordAdminEvent(db,req,`${type}_moderated`,`${id}: ${status}; ${reason.trim().slice(0,500)}`);await save(db);res.json({id,status,reason:reason.trim()});}));
-app.post('/api/ai/chat',auth,async(req,res)=>{const {message,context=''}=req.body||{};if(!message?.trim())return res.status(400).json({error:'Message required'});const risk=riskText(message);if(risk.level==='critical')return res.status(422).json({error:'Request blocked by ZERA Trust & Safety'});if(!process.env.OPENAI_API_KEY)return res.json({reply:'ZERA AI is connected to the ZERA HUB interface, but its live AI key has not been configured yet. Add OPENAI_API_KEY to .env, restart the server, and I can answer technical questions, teach concepts, write code, review code and debug errors.'});try{const r=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${process.env.OPENAI_API_KEY}`},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-5-mini',instructions:'You are ZERA AI, the developer mentor and coding assistant inside ZERA HUB. Be accurate, practical, beginner-friendly when needed, and strong at frontend, backend, databases, cybersecurity fundamentals, debugging, architecture, testing and deployment. Never claim to have executed code you did not execute. Protect secrets and credentials.',input:`User message:\n${message}\n\nContext:\n${context}`})});if(!r.ok)throw new Error('AI provider error');const data=await r.json();const text=data.output_text||data.output?.flatMap(x=>x.content||[]).map(x=>x.text||'').join('')||'I could not produce a response right now.';res.json({reply:text});}catch(e){res.status(502).json({error:'ZERA AI is temporarily unavailable. Check the server API configuration.'});}});
 io.on('connection',(socket)=>{socket.on('identify',(userId)=>{if(userId)socket.join(userId);});});
 app.use((error,req,res,next)=>{console.error('Request failed:',error.message);if(res.headersSent)return next(error);res.status(500).json({error:'The request could not be completed.'});});
 app.use(express.static(distDir));
 app.get('*',(req,res,next)=>{if(req.path.startsWith('/api/')||req.path.startsWith('/uploads/')||path.extname(req.path))return next();res.sendFile(frontendIndex,(error)=>{if(error)next(error);});});
+
 async function startServer(){
   try{
     const connection=await connectDatabase();
-    if(useMongoStorage){
-      mongoStateCollection=connection.db.collection('zera_hub_state');
-      const storedState=await mongoStateCollection.findOne({_id:'primary'});
-      if(storedState){
-        const {_id,...state}=storedState;
-        productionData=state;
-      }else{
-        productionData=initialData;
-        await mongoStateCollection.insertOne({...productionData,_id:'primary'});
+    if(connection){
+      try{
+        mongoStateCollection=connection.db.collection('zera_hub_state');
+        const storedState=await mongoStateCollection.findOne({_id:'primary'});
+        if(storedState){
+          const {_id,...state}=storedState;
+          const local=readLocalData();
+          memoryState={
+            ...initialData,
+            ...local,
+            ...state,
+            siteConfig:{...initialData.siteConfig,...(local.siteConfig||{}),...(state.siteConfig||{})},
+            users:Array.from(new Map([...(local.users||[]),...(state.users||[])].map(u=>[u.id,u])).values()),
+          };
+          save(memoryState).catch(()=>{});
+        }else{
+          await mongoStateCollection.insertOne({...memoryState,_id:'primary'});
+        }
+      }catch(mongoErr){
+        console.warn('MongoDB state sync warning:',mongoErr.message);
       }
     }
     httpServer.listen(PORT,()=>console.log(`ZERA HUB API running on http://localhost:${PORT}`));
   }catch(error){
-    console.error('Backend startup failed:',error.message);
-    if(error.cause?.code)console.error('MongoDB failure code:',error.cause.code);
-    process.exitCode=1;
-    httpServer.close();
+    console.error('Backend startup error:',error.message);
+    httpServer.listen(PORT,()=>console.log(`ZERA HUB API running on fallback on http://localhost:${PORT}`));
   }
 }
 startServer();
+
