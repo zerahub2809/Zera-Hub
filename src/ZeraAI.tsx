@@ -86,10 +86,50 @@ export function ZeraAIWorkspace({ user, site = null, initialPrompt = '', initial
   const [error, setError] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const chatScreenRef = useRef<HTMLElement>(null);
+  const chatModalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setCurrentUser(user);
   }, [user]);
+
+  useEffect(() => {
+    const mobileViewport = window.matchMedia('(max-width: 760px)');
+    const updateChatViewport = () => {
+      const targets = [chatScreenRef.current, chatModalRef.current];
+      if (!mobileViewport.matches) {
+        targets.forEach((target) => {
+          target?.style.removeProperty('--ai-visible-viewport-height');
+          target?.style.removeProperty('--ai-visible-viewport-top');
+        });
+        return;
+      }
+
+      const viewport = window.visualViewport;
+      const height = viewport?.height ?? window.innerHeight;
+      const top = viewport?.offsetTop ?? 0;
+      targets.forEach((target) => {
+        target?.style.setProperty('--ai-visible-viewport-height', `${height}px`);
+        target?.style.setProperty('--ai-visible-viewport-top', `${top}px`);
+      });
+    };
+    const viewport = window.visualViewport;
+    updateChatViewport();
+    window.addEventListener('resize', updateChatViewport);
+    viewport?.addEventListener('resize', updateChatViewport);
+    viewport?.addEventListener('scroll', updateChatViewport);
+    mobileViewport.addEventListener('change', updateChatViewport);
+    return () => {
+      window.removeEventListener('resize', updateChatViewport);
+      viewport?.removeEventListener('resize', updateChatViewport);
+      viewport?.removeEventListener('scroll', updateChatViewport);
+      mobileViewport.removeEventListener('change', updateChatViewport);
+      [chatScreenRef.current, chatModalRef.current].forEach((target) => {
+        target?.style.removeProperty('--ai-visible-viewport-height');
+        target?.style.removeProperty('--ai-visible-viewport-top');
+      });
+    };
+  }, []);
 
   useEffect(() => {
     const handleAuthChange = () => {
@@ -227,5 +267,5 @@ export function ZeraAIWorkspace({ user, site = null, initialPrompt = '', initial
       </form>
     </section>
   </div>;
-  return isModal ? <div className="ai-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose?.(); }}><div className="ai-modal-shell"><button className="ai-modal-close" onClick={onClose} aria-label="Close ZERA AI"><X size={18}/></button>{body}</div></div> : <main className="page ai-page ai-page-fullscreen"><div className="container page-inner"><div className="ai-page-heading"><span className="page-kicker">ZERA AI · intelligent assistant</span><h1>Think through what’s next.</h1><p className="page-caption">A general-purpose assistant for questions, learning, creative problem-solving, and software development. Live responses are clearly marked when unavailable.</p></div>{body}</div></main>;
+  return isModal ? <div ref={chatModalRef} className="ai-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose?.(); }}><div className="ai-modal-shell"><button className="ai-modal-close" onClick={onClose} aria-label="Close ZERA AI"><X size={18}/></button>{body}</div></div> : <main ref={chatScreenRef} className="page ai-page ai-page-fullscreen"><div className="container page-inner"><div className="ai-page-heading"><span className="page-kicker">ZERA AI · intelligent assistant</span><h1>Think through what’s next.</h1><p className="page-caption">A general-purpose assistant for questions, learning, creative problem-solving, and software development. Live responses are clearly marked when unavailable.</p></div>{body}</div></main>;
 }
