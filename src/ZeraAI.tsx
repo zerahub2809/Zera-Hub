@@ -92,52 +92,6 @@ export function ZeraAIWorkspace({ user, site = null, initialPrompt = '', initial
   }, [user]);
 
   useEffect(() => {
-    const root = document.documentElement;
-    const previousViewportHeight = root.style.getPropertyValue('--ai-mobile-viewport-height');
-    const previousViewportPriority = root.style.getPropertyPriority('--ai-mobile-viewport-height');
-    const mobileQuery = window.matchMedia('(max-width: 760px)');
-    let composerFocused = document.activeElement instanceof HTMLTextAreaElement
-      && document.activeElement.closest('.ai-composer') !== null;
-
-    const updateViewportHeight = () => {
-      if (mobileQuery.matches && !composerFocused) {
-        const height = window.visualViewport?.height || window.innerHeight;
-        root.style.setProperty('--ai-mobile-viewport-height', `${height}px`);
-      } else if (!mobileQuery.matches) {
-        root.style.removeProperty('--ai-mobile-viewport-height');
-      }
-    };
-    const handleFocusIn = (event: FocusEvent) => {
-      if (event.target instanceof HTMLTextAreaElement && event.target.closest('.ai-composer')) {
-        composerFocused = true;
-      }
-    };
-    const handleFocusOut = (event: FocusEvent) => {
-      if (event.target instanceof HTMLTextAreaElement && event.target.closest('.ai-composer')) {
-        composerFocused = false;
-        updateViewportHeight();
-      }
-    };
-
-    updateViewportHeight();
-    window.addEventListener('resize', updateViewportHeight);
-    window.visualViewport?.addEventListener('resize', updateViewportHeight);
-    document.addEventListener('focusin', handleFocusIn);
-    document.addEventListener('focusout', handleFocusOut);
-    return () => {
-      window.removeEventListener('resize', updateViewportHeight);
-      window.visualViewport?.removeEventListener('resize', updateViewportHeight);
-      document.removeEventListener('focusin', handleFocusIn);
-      document.removeEventListener('focusout', handleFocusOut);
-      if (previousViewportHeight) {
-        root.style.setProperty('--ai-mobile-viewport-height', previousViewportHeight, previousViewportPriority);
-      } else {
-        root.style.removeProperty('--ai-mobile-viewport-height');
-      }
-    };
-  }, []);
-
-  useEffect(() => {
     const handleAuthChange = () => {
       const stored = localStorage.getItem('zera_user');
       if (stored) {
