@@ -619,7 +619,7 @@ function Messages({user}:{user:User|null}){
           {voiceDraftUrl&&<div className="chat-voice-preview"><span>Voice message preview · {formatDuration(voiceDraftDuration)}</span><audio controls preload="metadata" src={voiceDraftUrl} aria-label="Preview voice message"/><button type="button" onClick={discardVoiceDraft} aria-label="Discard voice message"><X size={17}/></button></div>}
           {recordingError&&<p className="chat-recording-error" role="alert">{recordingError}</p>}
           <form className="chat-composer" onSubmit={event=>{event.preventDefault();void send()}}>
-            <input value={body} onChange={event=>changeMessageBody(event.target.value)} placeholder="Write a message…" aria-label="Message" disabled={recording}/>
+            <textarea rows={1} value={body} onChange={event=>changeMessageBody(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();void send()}}} placeholder="Write a message…" aria-label="Message" disabled={recording}/>
             <input ref={imageRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" hidden onChange={event=>setImage(event.target.files?.[0]||null)}/>
             <button type="button" className={`chat-voice-button ${recording?'recording':''}`} onClick={()=>void startRecording()} disabled={recording||Boolean(voiceDraft)} aria-label="Record a voice message" title="Record a voice message"><Mic size={19}/></button>
             <button type="button" className="chat-attach-button" onClick={()=>imageRef.current?.click()} aria-label="Attach image"><ImagePlus size={19}/></button>
