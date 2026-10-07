@@ -72,6 +72,56 @@ async function inspectAudioSignal(blob:Blob):Promise<boolean|null>{
     if(typeof context!=='undefined'&&context.state!=='closed')await context.close().catch(error=>console.warn('Could not close audio verification context:',error));
   }
 }
+function createVoiceWav(chunks:Float32Array[],sourceSampleRate:number):Blob{
+  const targetSampleRate=16000;
+  const sourceLength=chunks.reduce((total,chunk)=>total+chunk.length,0);
+  const targetLength=Math.floor(sourceLength*targetSampleRate/sourceSampleRate);
+  const pcm=new Int16Array(targetLength);
+  let sourceCursor=0;
+  let chunkIndex=0;
+  let chunkOffset=0;
+  const sampleAt=(index:number)=>{
+    while(sourceCursor<index){
+      sourceCursor++;
+      chunkOffset++;
+      if(chunkOffset>=chunks[chunkIndex].length){chunkIndex++;chunkOffset=0}
+    }
+    return chunks[chunkIndex]?.[chunkOffset]||0;
+  };
+  for(let targetIndex=0;targetIndex<targetLength;targetIndex++){
+    const start=targetIndex*sourceSampleRate/targetSampleRate;
+    const end=(targetIndex+1)*sourceSampleRate/targetSampleRate;
+    let position=start;
+    let sourceIndex=Math.floor(start);
+    let weightedSample=0;
+    while(position<end){
+      const sampleEnd=Math.min(end,sourceIndex+1);
+      weightedSample+=sampleAt(sourceIndex)*(sampleEnd-position);
+      position=sampleEnd;
+      sourceIndex++;
+    }
+    const sample=Math.max(-1,Math.min(1,weightedSample/(end-start)));
+    pcm[targetIndex]=sample<0?sample*0x8000:sample*0x7fff;
+  }
+  const wav=new ArrayBuffer(44+pcm.byteLength);
+  const view=new DataView(wav);
+  const writeText=(offset:number,value:string)=>{for(let index=0;index<value.length;index++)view.setUint8(offset+index,value.charCodeAt(index))};
+  writeText(0,'RIFF');
+  view.setUint32(4,36+pcm.byteLength,true);
+  writeText(8,'WAVE');
+  writeText(12,'fmt ');
+  view.setUint32(16,16,true);
+  view.setUint16(20,1,true);
+  view.setUint16(22,1,true);
+  view.setUint32(24,targetSampleRate,true);
+  view.setUint32(28,targetSampleRate*2,true);
+  view.setUint16(32,2,true);
+  view.setUint16(34,16,true);
+  writeText(36,'data');
+  view.setUint32(40,pcm.byteLength,true);
+  new Int16Array(wav,44).set(pcm);
+  return new Blob([wav],{type:'audio/wav'});
+}
 function VoiceMessage({url,mimeType,durationSeconds}:{url:string;mimeType?:string;durationSeconds?:number}){
   const [playbackError,setPlaybackError]=useState('');
   return <div className="chat-voice-message">
@@ -85,6 +135,7 @@ function VoiceMessage({url,mimeType,durationSeconds}:{url:string;mimeType?:strin
         console.info('Voice message media loaded', {url,mimeType,durationSeconds:audio.duration,readyState:audio.readyState});
         setPlaybackError('');
       }}
+      onPlaying={event=>console.info('Voice message playback started',{url,mimeType,currentSrc:event.currentTarget.currentSrc,currentTime:event.currentTarget.currentTime})}
       onError={event=>{
         const mediaError=event.currentTarget.error;
         console.error('Voice message playback failed', {url,mimeType,code:mediaError?.code,message:mediaError?.message});
@@ -476,9 +527,15 @@ function Messages({user}:{user:User|null}){
   const selectedRef=useRef<User|null>(selected);
   const sendingRef=useRef(false);
   const pendingSendKeyRef=useRef<string|null>(null);
-  const recorderRef=useRef<MediaRecorder|null>(null);
   const streamRef=useRef<MediaStream|null>(null);
-  const chunksRef=useRef<Blob[]>([]);
+  const audioContextRef=useRef<AudioContext|null>(null);
+  const audioSourceRef=useRef<MediaStreamAudioSourceNode|null>(null);
+  const audioProcessorRef=useRef<ScriptProcessorNode|null>(null);
+  const silentOutputRef=useRef<GainNode|null>(null);
+  const chunksRef=useRef<Float32Array[]>([]);
+  const audioSampleRateRef=useRef(0);
+  const capturingAudioRef=useRef(false);
+  const stopAudioCaptureRef=useRef<()=>void>(()=>{});
   const cancelRecordingRef=useRef(false);
   const recordingStartedAtRef=useRef(0);
   const recordingTimerRef=useRef<number|undefined>(undefined);
@@ -553,9 +610,9 @@ function Messages({user}:{user:User|null}){
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange',onVisible);
       socketRef.current?.emit('chat:status',{toUserId:selectedId,status:null});
-      if(recorderRef.current?.state==='recording'){
+      if(capturingAudioRef.current){
         cancelRecordingRef.current=true;
-        recorderRef.current.stop();
+        stopAudioCaptureRef.current();
       }
     };
   },[selected?.id,user?.id]);
@@ -571,7 +628,7 @@ function Messages({user}:{user:User|null}){
   useEffect(()=>{if(!image){setImagePreview('');return}const url=URL.createObjectURL(image);setImagePreview(url);return()=>URL.revokeObjectURL(url)},[image]);
   useEffect(()=>{if(!voiceDraft){setVoiceDraftUrl('');return}const url=URL.createObjectURL(voiceDraft);setVoiceDraftUrl(url);return()=>URL.revokeObjectURL(url)},[voiceDraft]);
   useEffect(()=>{if(!messagesRef.current)return;const targetId=targetMessageId.current;const target=targetId?messageElements.current[targetId]:null;if(target){const container=messagesRef.current;container.scrollTop+=target.getBoundingClientRect().top-container.getBoundingClientRect().top-(container.clientHeight-target.clientHeight)/2;targetMessageId.current=null;return}if(targetId&&messages.some(message=>message.id===targetId))targetMessageId.current=null;messagesRef.current.scrollTop=messagesRef.current.scrollHeight},[messages,selected]);
-  useEffect(()=>()=>{if(recordingTimerRef.current!==undefined)window.clearInterval(recordingTimerRef.current);streamRef.current?.getTracks().forEach(track=>track.stop());},[]);
+  useEffect(()=>()=>{if(recordingTimerRef.current!==undefined)window.clearInterval(recordingTimerRef.current);capturingAudioRef.current=false;audioProcessorRef.current?.disconnect();audioSourceRef.current?.disconnect();silentOutputRef.current?.disconnect();streamRef.current?.getTracks().forEach(track=>track.stop());const context=audioContextRef.current;if(context&&context.state!=='closed')void context.close().catch(error=>console.warn('Could not close the voice recording context:',error));},[]);
   useEffect(()=>{const observer=new MutationObserver(()=>setTheme(document.documentElement.dataset.theme==='light'?'light':'dark'));observer.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});return()=>observer.disconnect()},[]);
   const enableNotifications=async()=>{setPushNotice('');const secure=window.isSecureContext||location.hostname==='localhost';const ua=navigator.userAgent;const ios=/iPad|iPhone|iPod/.test(ua);const standalone=window.matchMedia('(display-mode: standalone)').matches||Boolean((navigator as Navigator&{standalone?:boolean}).standalone);if(!secure||!('serviceWorker'in navigator)||!('PushManager'in window)||typeof Notification==='undefined'||(ios&&!standalone)){setPushNotice(ios&&!standalone?'Browser push is available on supported iPhones and iPads when ZERA HUB is installed to the Home Screen. In-app notifications will continue to work.':'Browser or device push notifications are unavailable in this environment. In-app notifications will continue to work.');return}try{const key=await api('/api/push/public-key') as PushPublicKeyResponse;if(!key.publicKey){setPushNotice('Device push is not configured on this server. In-app notifications remain available.');return}let permission=Notification.permission;if(permission==='default')permission=await Notification.requestPermission();if(permission!=='granted'){setPushNotice(permission==='denied'?'Browser notifications are blocked in your browser settings. In-app notifications remain available.':'Notification permission was not granted. In-app notifications remain available.');return}const registration=await navigator.serviceWorker.register('/service-worker.js');const existing=await registration.pushManager.getSubscription();const subscription=existing||await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:decodeVapidKey(key.publicKey)});await api('/api/push/subscribe',{method:'POST',body:JSON.stringify({subscription})});setPushNotice('Browser notifications are enabled on this device.')}catch(error){console.error('Could not enable browser notifications:',error);setPushNotice('Browser push could not be enabled in this environment. In-app notifications remain available.')}}
   const clearChatStatus=(userId=selected?.id)=>{if(userId)socketRef.current?.emit('chat:status',{toUserId:userId,status:null});if(typingTimerRef.current!==undefined)window.clearTimeout(typingTimerRef.current)};
@@ -584,16 +641,21 @@ function Messages({user}:{user:User|null}){
     if(typingTimerRef.current!==undefined)window.clearTimeout(typingTimerRef.current);
     typingTimerRef.current=window.setTimeout(()=>clearChatStatus(selected.id),1800);
   };
-  const stopRecording=()=>{if(recorderRef.current?.state==='recording')recorderRef.current.stop()};
+  const stopRecording=()=>{if(capturingAudioRef.current)stopAudioCaptureRef.current()};
   const cancelRecording=()=>{cancelRecordingRef.current=true;stopRecording()};
   const startRecording=async()=>{
     setRecordingError('');
     if(!selected)return;
-    if(!navigator.mediaDevices?.getUserMedia||typeof MediaRecorder==='undefined'){
+    const AudioContextConstructor=window.AudioContext||(window as AudioContextWindow).webkitAudioContext;
+    if(!navigator.mediaDevices?.getUserMedia||!AudioContextConstructor){
       setRecordingError('Voice recording is not supported in this browser.');
       return;
     }
+    let context:AudioContext|undefined;
     try{
+      context=new AudioContextConstructor();
+      audioContextRef.current=context;
+      await context.resume();
       const stream=await navigator.mediaDevices.getUserMedia({audio:true});
       streamRef.current=stream;
       const audioTracks=stream.getAudioTracks();
@@ -604,43 +666,62 @@ function Messages({user}:{user:User|null}){
       }
       console.info('Microphone audio track ready',audioTracks.map(track=>({enabled:track.enabled,muted:track.muted,readyState:track.readyState,settings:{sampleRate:track.getSettings().sampleRate,channelCount:track.getSettings().channelCount}})));
       chunksRef.current=[];
+      audioSampleRateRef.current=context.sampleRate;
       cancelRecordingRef.current=false;
-      const preferredType=['audio/webm;codecs=opus','audio/mp4','audio/webm','audio/ogg;codecs=opus'].find(type=>MediaRecorder.isTypeSupported(type));
-      const recorder=new MediaRecorder(stream,preferredType?{mimeType:preferredType}:undefined);
-      recorderRef.current=recorder;
-      console.info('MediaRecorder started',{reportedMimeType:recorder.mimeType||'not reported',requestedMimeType:preferredType||'browser default',audioTrackCount:audioTracks.length});
+      const source=context.createMediaStreamSource(stream);
+      const processor=context.createScriptProcessor(4096,1,1);
+      const silentOutput=context.createGain();
+      silentOutput.gain.value=0;
+      audioSourceRef.current=source;
+      audioProcessorRef.current=processor;
+      silentOutputRef.current=silentOutput;
+      processor.onaudioprocess=event=>{
+        if(capturingAudioRef.current)chunksRef.current.push(event.inputBuffer.getChannelData(0).slice());
+      };
+      source.connect(processor);
+      processor.connect(silentOutput);
+      silentOutput.connect(context.destination);
+      console.info('PCM voice capture started',{sampleRate:context.sampleRate,channels:1,outputMimeType:'audio/wav',audioTrackCount:audioTracks.length});
       recordingStartedAtRef.current=Date.now();
       setRecordingSeconds(0);
-      recorder.ondataavailable=event=>{
-        if(event.data.size)chunksRef.current.push(event.data);
-      };
-      recorder.onstop=async()=>{
+      capturingAudioRef.current=true;
+      let finalized=false;
+      const finalize=async()=>{
+        if(finalized)return;
+        finalized=true;
+        capturingAudioRef.current=false;
         if(recordingTimerRef.current!==undefined)window.clearInterval(recordingTimerRef.current);
         recordingTimerRef.current=undefined;
+        processor.onaudioprocess=null;
+        source.disconnect();
+        processor.disconnect();
+        silentOutput.disconnect();
         stream.getTracks().forEach(track=>track.stop());
         streamRef.current=null;
-        recorderRef.current=null;
+        audioSourceRef.current=null;
+        audioProcessorRef.current=null;
+        silentOutputRef.current=null;
+        audioContextRef.current=null;
+        if(context&&context.state!=='closed')await context.close().catch(error=>console.warn('Could not close the voice recording context:',error));
         setRecording(false);
         clearChatStatus(selected.id);
         if(cancelRecordingRef.current){chunksRef.current=[];return}
         const capturedChunks=chunksRef.current;
-        const chunkBytes=capturedChunks.reduce((total,chunk)=>total+chunk.size,0);
-        const recordedMime=recorder.mimeType||capturedChunks.find(chunk=>chunk.type)?.type||'';
-        const blob=new Blob(capturedChunks,recordedMime?{type:recordedMime}:{});
+        const capturedFrames=capturedChunks.reduce((total,chunk)=>total+chunk.length,0);
+        const capturedBytes=capturedFrames*Float32Array.BYTES_PER_ELEMENT;
+        const blob=createVoiceWav(capturedChunks,audioSampleRateRef.current);
         chunksRef.current=[];
-        const duration=Math.ceil((Date.now()-recordingStartedAtRef.current)/1000);
-        console.info('Voice recording stopped', {mimeType:blob.type||'not reported by MediaRecorder',chunkCount:capturedChunks.length,chunkBytes,blobBytes:blob.size,durationSeconds:duration});
+        const duration=Math.max(1,Math.ceil((Date.now()-recordingStartedAtRef.current)/1000));
+        console.info('PCM voice recording stopped',{sourceSampleRate:audioSampleRateRef.current,outputSampleRate:16000,channels:1,mimeType:blob.type,chunkCount:capturedChunks.length,capturedFrames,capturedBytes,blobBytes:blob.size,durationSeconds:duration});
         if(blob.size>12*1024*1024){setRecordingError('This voice message is too large. Record a shorter message and try again.');return}
-        if(!capturedChunks.length||!chunkBytes||!blob.size){console.error('Voice recording produced an empty audio Blob',{mimeType:blob.type,chunkCount:capturedChunks.length,chunkBytes,blobBytes:blob.size});setRecordingError('No audio data was captured. Check microphone access and try again.');return}
-        if(!blob.type){console.error('MediaRecorder did not report an audio MIME type; the server will identify the container from the recorded bytes.')}
+        if(!capturedChunks.length||!capturedFrames||!blob.size){console.error('Voice recording produced an empty audio Blob',{mimeType:blob.type,chunkCount:capturedChunks.length,capturedFrames,capturedBytes,blobBytes:blob.size});setRecordingError('No audio data was captured. Check microphone access and try again.');return}
         const signalPresent=await inspectAudioSignal(blob);
         if(signalPresent===false){console.error('Captured voice recording contains no audible decoded microphone signal',{mimeType:blob.type,bytes:blob.size});setRecordingError('The recording contains no audible microphone signal. Check the selected microphone and record again.');return}
         pendingSendKeyRef.current=null;
         setVoiceDraft(blob);
         setVoiceDraftDuration(duration);
       };
-      recorder.onerror=event=>{console.error('MediaRecorder reported a recording error',event);setRecordingError('The recording stopped unexpectedly. Please try again.')};
-      recorder.start(250);
+      stopAudioCaptureRef.current=()=>{void finalize()};
       setRecording(true);
       socketRef.current?.emit('chat:status',{toUserId:selected.id,status:'recording'});
       let lastStatusAt=Date.now();
@@ -654,8 +735,17 @@ function Messages({user}:{user:User|null}){
         if(elapsed>=180)stopRecording();
       },250);
     }catch(error){
+      capturingAudioRef.current=false;
+      audioProcessorRef.current?.disconnect();
+      audioSourceRef.current?.disconnect();
+      silentOutputRef.current?.disconnect();
+      audioProcessorRef.current=null;
+      audioSourceRef.current=null;
+      silentOutputRef.current=null;
       streamRef.current?.getTracks().forEach(track=>track.stop());
       streamRef.current=null;
+      audioContextRef.current=null;
+      if(context&&context.state!=='closed')await context.close().catch(closeError=>console.warn('Could not close the voice recording context after an error:',closeError));
       const denied=error instanceof Error&&['NotAllowedError','PermissionDeniedError'].includes(error.name);
       if(error instanceof Error&&error.message.startsWith('The microphone did not provide'))setRecordingError(error.message);
       else setRecordingError(denied?'Microphone access was denied. Allow microphone access in your browser settings to record a voice message.':'Could not access the microphone. Check your device and browser permissions.');
@@ -679,15 +769,16 @@ function Messages({user}:{user:User|null}){
       }
       if(voiceDraft){
         if(!voiceDraft.size||voiceDraft.size>12*1024*1024)throw new Error('The recorded voice message is empty or exceeds the 12 MB limit. Record it again.');
-        console.info('Uploading recorded voice message', {bytes:voiceDraft.size,mimeType:voiceDraft.type||'not reported by MediaRecorder',durationSeconds:voiceDraftDuration});
+        console.info('Uploading recorded voice message',{bytes:voiceDraft.size,mimeType:voiceDraft.type,durationSeconds:voiceDraftDuration});
         const form=new FormData();
-        form.append('voice',voiceDraft,`voice-${Date.now()}`);
+        form.append('voice',voiceDraft,`voice-${Date.now()}.wav`);
         form.append('durationSeconds',String(voiceDraftDuration));
         const uploaded=await apiUpload<ChatMessage&{voiceSizeBytes:number;voiceSha256:string}>(`/api/messages/${recipientId}/voice`,form,`${requestKey}:voice`);
         if(!uploaded.voiceUrl||!uploaded.voiceMimeType||uploaded.voiceSizeBytes<=0||!uploaded.voiceSha256)throw new Error('The server did not confirm a valid stored voice recording.');
         const storedResponse=await fetch(voiceUrl(uploaded.voiceUrl),{cache:'no-store'});
         if(!storedResponse.ok)throw new Error(`The uploaded voice message could not be read back from storage (${storedResponse.status}).`);
         const storedAudio=await storedResponse.blob();
+        console.info('Voice file read back from storage',{url:uploaded.voiceUrl,status:storedResponse.status,contentType:storedResponse.headers.get('Content-Type'),bytes:storedAudio.size});
         if(storedAudio.size!==uploaded.voiceSizeBytes||storedAudio.type.split(';')[0]!==uploaded.voiceMimeType){
           console.error('Stored voice message verification failed',{expectedBytes:uploaded.voiceSizeBytes,storedBytes:storedAudio.size,expectedMime:uploaded.voiceMimeType,storedMime:storedAudio.type});
           throw new Error('The uploaded voice recording did not pass its storage integrity check. Please try recording again.');
