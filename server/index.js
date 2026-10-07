@@ -138,7 +138,18 @@ app.use(helmet({crossOriginResourcePolicy:{policy:'cross-origin'},crossOriginOpe
 app.use(cors({origin:allowClientOrigin,credentials:true,methods:['GET','POST','PUT','PATCH','DELETE','OPTIONS'],allowedHeaders:['Content-Type','Authorization','Accept','X-Requested-With','Idempotency-Key']}));
 app.options('*',cors({origin:allowClientOrigin,credentials:true}));
 app.use(express.json({limit:'2mb'}));
-app.use('/uploads',express.static(uploadDir));
+app.use('/uploads',express.static(uploadDir,{setHeaders:(res,filePath)=>{
+  const contentType={
+    '.webm':'audio/webm',
+    '.ogg':'audio/ogg',
+    '.m4a':'audio/mp4',
+    '.mp3':'audio/mpeg',
+    '.wav':'audio/wav',
+    '.aac':'audio/aac',
+    '.3gp':'audio/3gpp',
+  }[path.extname(filePath).toLowerCase()];
+  if(contentType)res.setHeader('Content-Type',contentType);
+}}));
 app.use('/assets',express.static(root));
 const authLimiter=rateLimit({windowMs:15*60*1000,max:200,standardHeaders:true,legacyHeaders:false});
 const aiLimiter=rateLimit({windowMs:15*60*1000,max:100,standardHeaders:true,legacyHeaders:false});
@@ -389,8 +400,57 @@ app.post('/api/reports',auth,asyncRoute(async(req,res)=>{const {targetType,targe
 const upload=multer({storage:multer.diskStorage({destination:uploadDir,filename:(req,file,cb)=>cb(null,`${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g,'_')}`)}),limits:{fileSize:2*1024*1024},fileFilter:(req,file,cb)=>cb(null,['image/jpeg','image/png','image/gif','image/webp','image/avif'].includes(file.mimetype))});
 const imageExtensions={'image/jpeg':'.jpg','image/png':'.png','image/gif':'.gif','image/webp':'.webp','image/avif':'.avif'};
 const communityUpload=multer({storage:multer.diskStorage({destination:uploadDir,filename:(req,file,cb)=>cb(null,`${Date.now()}-${crypto.randomUUID()}${imageExtensions[file.mimetype]||'.img'}`)}),limits:{fileSize:2*1024*1024},fileFilter:(req,file,cb)=>cb(null,Boolean(imageExtensions[file.mimetype]))});
-const audioExtensions={'audio/webm':'.webm','audio/ogg':'.ogg','audio/mp4':'.m4a','audio/m4a':'.m4a','audio/x-m4a':'.m4a','audio/mpeg':'.mp3','audio/wav':'.wav','audio/x-wav':'.wav','audio/aac':'.aac','audio/3gpp':'.3gp'};
-const voiceUpload=multer({storage:multer.diskStorage({destination:uploadDir,filename:(req,file,cb)=>cb(null,`${Date.now()}-${crypto.randomUUID()}${audioExtensions[file.mimetype.split(';')[0]]||'.audio'}`)}),limits:{fileSize:12*1024*1024},fileFilter:(req,file,cb)=>cb(null,Boolean(audioExtensions[file.mimetype.split(';')[0]]))});
+const audioFormats={
+  'audio/webm':{extension:'.webm'},
+  'audio/ogg':{extension:'.ogg'},
+  'audio/mp4':{extension:'.m4a'},
+  'audio/m4a':{extension:'.m4a'},
+  'audio/x-m4a':{extension:'.m4a'},
+  'audio/mpeg':{extension:'.mp3'},
+  'audio/wav':{extension:'.wav'},
+  'audio/x-wav':{extension:'.wav'},
+  'audio/aac':{extension:'.aac'},
+  'audio/3gpp':{extension:'.3gp'},
+};
+const audioExtensions=Object.fromEntries(Object.entries(audioFormats).map(([type,format])=>[type,format.extension]));
+const voiceUpload=multer({
+  storage:multer.diskStorage({destination:uploadDir,filename:(req,file,cb)=>cb(null,`${Date.now()}-${crypto.randomUUID()}.upload`)}),
+  limits:{fileSize:12*1024*1024},
+  fileFilter:(req,file,cb)=>{
+    const declaredType=file.mimetype.split(';')[0].toLowerCase();
+    cb(null,Boolean(audioFormats[declaredType])||declaredType==='application/octet-stream');
+  },
+});
+function receiveVoiceUpload(req,res,next){
+  voiceUpload.single('voice')(req,res,error=>{
+    if(!error)return next();
+    const tooLarge=error instanceof multer.MulterError&&error.code==='LIMIT_FILE_SIZE';
+    console.error('Voice upload middleware failed',{code:error.code||error.name,message:error.message});
+    return res.status(tooLarge?413:400).json({error:tooLarge?'Voice messages cannot exceed 12 MB.':'The voice recording could not be uploaded. Please try again.'});
+  });
+}
+function inspectAudioFile(file){
+  const bytes=fs.readFileSync(file.path);
+  if(!bytes.length)throw new Error('Uploaded voice recording is empty');
+  if(bytes.subarray(0,4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3])))return {bytes,mimeType:'audio/webm'};
+  if(bytes.subarray(0,4).toString('ascii')==='OggS')return {bytes,mimeType:'audio/ogg'};
+  if(bytes.subarray(0,4).toString('ascii')==='RIFF'&&bytes.subarray(8,12).toString('ascii')==='WAVE')return {bytes,mimeType:'audio/wav'};
+  if(bytes.length>=12&&bytes.subarray(4,8).toString('ascii')==='ftyp'){
+    const brand=bytes.subarray(8,12).toString('ascii');
+    return {bytes,mimeType:/^(3gp|3g2)/.test(brand)?'audio/3gpp':'audio/mp4'};
+  }
+  if(bytes.subarray(0,3).toString('ascii')==='ID3'||(bytes.length>=2&&bytes[0]===0xff&&(bytes[1]&0xe0)===0xe0&&(bytes[1]&0x06)!==0))return {bytes,mimeType:'audio/mpeg'};
+  if(bytes.length>=2&&bytes[0]===0xff&&(bytes[1]&0xf6)===0xf0)return {bytes,mimeType:'audio/aac'};
+  throw new Error(`Uploaded voice recording has an unsupported or invalid audio container (declared ${file.mimetype||'unknown'})`);
+}
+function storedVoiceDetails(message){
+  if(typeof message.voiceUrl!=='string'||!message.voiceUrl.startsWith('/uploads/'))throw new Error('Stored voice message does not have a valid upload URL');
+  const storedPath=path.join(uploadDir,path.basename(message.voiceUrl));
+  const bytes=fs.readFileSync(storedPath);
+  const audio=inspectAudioFile({path:storedPath,mimetype:message.voiceMimeType||''});
+  if(!bytes.length||audio.mimeType!==message.voiceMimeType)throw new Error('Stored voice message format no longer matches its message record');
+  return {voiceSizeBytes:bytes.length,voiceSha256:createHash('sha256').update(bytes).digest('hex')};
+}
 function messageRequestKey(req,res){
   const key=req.get('Idempotency-Key');
   if(key===undefined)return {key:null,existing:null};
@@ -405,7 +465,68 @@ function validImageSignature(file){const bytes=fs.readFileSync(file.path);if(fil
 app.post('/api/profile/avatar',auth,communityUpload.single('avatar'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'A valid image file is required'});if(!validImageSignature(req.file)){fs.unlinkSync(req.file.path);return res.status(415).json({error:'The uploaded file is not a supported image'});}const db=load();const user=db.users.find(item=>item.id===req.user.id);if(!user){fs.unlinkSync(req.file.path);return res.status(404).json({error:'User not found'});}user.avatar=`/uploads/${req.file.filename}`;await save(db);res.json(publicUser(user));}));
 app.post('/api/profile/chat-wallpaper',auth,communityUpload.single('image'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'A valid image file is required'});if(!validImageSignature(req.file)){fs.unlinkSync(req.file.path);return res.status(415).json({error:'The uploaded file is not a supported image'});}const db=load();const user=db.users.find(item=>item.id===req.user.id);if(!user){fs.unlinkSync(req.file.path);return res.status(404).json({error:'User not found'});}user.preferences||={};user.preferences.chatWallpaper='custom';user.preferences.chatWallpaperImage=`/uploads/${req.file.filename}`;await save(db);res.status(201).json({chatWallpaper:'custom',chatWallpaperImage:user.preferences.chatWallpaperImage});}));
 app.post('/api/messages/:userId/image',auth,communityUpload.single('image'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'A valid image file is required'});if(!validImageSignature(req.file)){fs.unlinkSync(req.file.path);return res.status(415).json({error:'The uploaded file is not a supported image'});}const idempotency=messageRequestKey(req,res);if(!idempotency){fs.unlinkSync(req.file.path);return;}if(idempotency.existing){fs.unlinkSync(req.file.path);return res.json(idempotency.existing);}const db=load();const recipient=db.users.find(item=>item.id===req.params.userId&&item.status==='active');if(!recipient){fs.unlinkSync(req.file.path);return res.status(404).json({error:'Recipient not found'});}const message={id:crypto.randomUUID(),fromUserId:req.user.id,toUserId:req.params.userId,body:'',imageUrl:`/uploads/${req.file.filename}`,createdAt:new Date().toISOString(),sentAt:new Date().toISOString(),deliveredAt:null,readAt:null,...(idempotency.key?{clientRequestId:idempotency.key}:{})};db.messages.push(message);await save(db);io.to(req.params.userId).emit('message:new',message);const senderName=db.users.find(item=>item.id===req.user.id)?.name||'A ZERA HUB member';await notifyUser(req.params.userId,'message',`New message from ${senderName}`,'Sent you an image.',{url:`/messages?user=${encodeURIComponent(req.user.id)}&message=${encodeURIComponent(message.id)}`,fromUserId:req.user.id,messageId:message.id});res.status(201).json(message);}));
-app.post('/api/messages/:userId/voice',auth,voiceUpload.single('voice'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'A supported voice recording is required'});const idempotency=messageRequestKey(req,res);if(!idempotency){fs.unlinkSync(req.file.path);return;}if(idempotency.existing){fs.unlinkSync(req.file.path);return res.json(idempotency.existing);}const durationSeconds=Number(req.body?.durationSeconds);if(!Number.isFinite(durationSeconds)||durationSeconds<=0||durationSeconds>180){fs.unlinkSync(req.file.path);return res.status(400).json({error:'Voice messages must be between 1 and 180 seconds'});}const db=load();const recipient=db.users.find(item=>item.id===req.params.userId&&item.status==='active');if(!recipient){fs.unlinkSync(req.file.path);return res.status(404).json({error:'Recipient not found'});}const contentType=audioExtensions[req.file.mimetype.split(';')[0]]?req.file.mimetype.split(';')[0]:'application/octet-stream';const message={id:crypto.randomUUID(),fromUserId:req.user.id,toUserId:req.params.userId,body:'',imageUrl:'',voiceUrl:`/uploads/${req.file.filename}`,voiceMimeType:contentType,durationSeconds,createdAt:new Date().toISOString(),sentAt:new Date().toISOString(),deliveredAt:null,readAt:null,...(idempotency.key?{clientRequestId:idempotency.key}:{})};db.messages.push(message);await save(db);io.to(req.params.userId).emit('message:new',message);const senderName=db.users.find(item=>item.id===req.user.id)?.name||'A ZERA HUB member';await notifyUser(req.params.userId,'message',`New message from ${senderName}`,'Sent you a voice message.',{url:`/messages?user=${encodeURIComponent(req.user.id)}&message=${encodeURIComponent(message.id)}`,fromUserId:req.user.id,messageId:message.id});res.status(201).json(message);}));
+app.post('/api/messages/:userId/voice',auth,receiveVoiceUpload,asyncRoute(async(req,res)=>{
+  if(!req.file)return res.status(400).json({error:'A supported voice recording is required'});
+  const cleanup=()=>{if(req.file?.path&&fs.existsSync(req.file.path))fs.unlinkSync(req.file.path);};
+  let audio;
+  try{
+    audio=inspectAudioFile(req.file);
+  }catch(error){
+    cleanup();
+    console.error('Voice upload validation failed:',error.message,{declaredMimeType:req.file.mimetype,bytes:req.file.size});
+    return res.status(415).json({error:'The uploaded voice recording is empty, corrupted, or uses an unsupported audio format.'});
+  }
+  if(req.file.size<=0||audio.bytes.length!==req.file.size){
+    cleanup();
+    console.error('Voice upload size validation failed',{reportedBytes:req.file.size,storedBytes:audio.bytes.length});
+    return res.status(422).json({error:'The uploaded voice recording is empty or incomplete. Please record it again.'});
+  }
+  const idempotency=messageRequestKey(req,res);
+  if(!idempotency){cleanup();return;}
+  if(idempotency.existing){
+    cleanup();
+    try{return res.json({...idempotency.existing,...storedVoiceDetails(idempotency.existing)});}
+    catch(error){
+      console.error('Could not verify an existing idempotent voice upload:',error.message,{messageId:idempotency.existing.id,url:idempotency.existing.voiceUrl});
+      return res.status(500).json({error:'The previously uploaded voice recording could not be verified. Please contact support.'});
+    }
+  }
+  const durationSeconds=Number(req.body?.durationSeconds);
+  if(!Number.isFinite(durationSeconds)||durationSeconds<=0||durationSeconds>180){cleanup();return res.status(400).json({error:'Voice messages must be between 1 and 180 seconds'});}
+  const db=load();
+  const recipient=db.users.find(item=>item.id===req.params.userId&&item.status==='active');
+  if(!recipient){cleanup();return res.status(404).json({error:'Recipient not found'});}
+  const storedFilename=`${path.basename(req.file.filename,'.upload')}${audioExtensions[audio.mimeType]}`;
+  const storedPath=path.join(uploadDir,storedFilename);
+  fs.renameSync(req.file.path,storedPath);
+  const storedBytes=fs.statSync(storedPath).size;
+  if(storedBytes!==audio.bytes.length||storedBytes<=0){
+    fs.unlinkSync(storedPath);
+    console.error('Stored voice file failed post-write size validation',{url:`/uploads/${storedFilename}`,expectedBytes:audio.bytes.length,storedBytes});
+    return res.status(500).json({error:'The voice recording could not be stored completely. Please try again.'});
+  }
+  const storedAudioBytes=fs.readFileSync(storedPath);
+  const uploadedHash=createHash('sha256').update(audio.bytes).digest('hex');
+  const storedHash=createHash('sha256').update(storedAudioBytes).digest('hex');
+  if(uploadedHash!==storedHash){
+    fs.unlinkSync(storedPath);
+    console.error('Stored voice file checksum did not match uploaded content',{url:`/uploads/${storedFilename}`,bytes:storedBytes});
+    return res.status(500).json({error:'The voice recording changed while being stored. Please try again.'});
+  }
+  const message={id:crypto.randomUUID(),fromUserId:req.user.id,toUserId:req.params.userId,body:'',imageUrl:'',voiceUrl:`/uploads/${storedFilename}`,voiceMimeType:audio.mimeType,durationSeconds,createdAt:new Date().toISOString(),sentAt:new Date().toISOString(),deliveredAt:null,readAt:null,...(idempotency.key?{clientRequestId:idempotency.key}:{})};
+  db.messages.push(message);
+  try{
+    await save(db);
+  }catch(error){
+    fs.unlinkSync(storedPath);
+    throw error;
+  }
+  console.info('Voice message stored',{messageId:message.id,fromUserId:message.fromUserId,toUserId:message.toUserId,url:message.voiceUrl,mimeType:message.voiceMimeType,bytes:storedBytes,sha256:storedHash});
+  io.to(req.params.userId).emit('message:new',message);
+  const senderName=db.users.find(item=>item.id===req.user.id)?.name||'A ZERA HUB member';
+  await notifyUser(req.params.userId,'message',`New message from ${senderName}`,'Sent you a voice message.',{url:`/messages?user=${encodeURIComponent(req.user.id)}&message=${encodeURIComponent(message.id)}`,fromUserId:req.user.id,messageId:message.id});
+  res.status(201).json({...message,voiceSizeBytes:storedBytes,voiceSha256:storedHash});
+}));
 app.use('/api/community',createCommunityRouter({auth,load,save,publicUser,upload:communityUpload,riskText}));
 app.post('/api/admin/login',asyncRoute(async(req,res)=>{const {email,password}=req.body||{};const attemptedEmail=String(email||'').slice(0,254);const adminEmail=attemptedEmail.toLowerCase();if(!process.env.ADMIN_EMAIL||!process.env.ADMIN_PASSWORD)return res.status(503).json({error:'Admin credentials are not configured on the server'});const db=load();db.adminLoginActivity||=[];if(adminEmail!==process.env.ADMIN_EMAIL.toLowerCase()||password!==process.env.ADMIN_PASSWORD){db.adminLoginActivity.push({id:crypto.randomUUID(),attemptedEmail,success:false,createdAt:new Date().toISOString()});if(db.adminLoginActivity.length>200)db.adminLoginActivity.shift();await save(db);return res.status(401).json({error:'Invalid admin credentials'});}db.adminLoginActivity.push({id:crypto.randomUUID(),adminEmail:process.env.ADMIN_EMAIL,success:true,createdAt:new Date().toISOString()});if(db.adminLoginActivity.length>200)db.adminLoginActivity.shift();await save(db);const user={id:'admin',role:'admin',email:process.env.ADMIN_EMAIL};res.json({token:tokenFor(user),user:{id:'admin',email:process.env.ADMIN_EMAIL,role:'admin'}});}));
 app.get('/api/admin/overview',admin,(req,res)=>res.json(adminOverview(load())));

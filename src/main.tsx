@@ -42,7 +42,59 @@ function VerificationBadge(){return <span className="verification-badge" title="
 function formatLastSeen(user:User){if(user.online)return 'Online';if(!user.lastSeenAt)return 'Offline';const elapsed=Date.now()-Date.parse(user.lastSeenAt);if(elapsed<3600000)return `Last seen ${Math.max(1,Math.floor(elapsed/60000))}m ago`;if(elapsed<86400000)return `Last seen ${Math.floor(elapsed/3600000)}h ago`;return `Last seen ${new Date(user.lastSeenAt).toLocaleDateString()}`}
 function voiceUrl(url:string){return url.startsWith('http')?url:`${API}${url}`}
 function formatDuration(seconds:number){const safe=Math.max(0,Math.floor(seconds));return `${Math.floor(safe/60)}:${String(safe%60).padStart(2,'0')}`}
-function VoiceMessage({url,mimeType,durationSeconds}:{url:string;mimeType?:string;durationSeconds?:number}){return <div className="chat-voice-message"><audio controls preload="metadata" aria-label="Voice message"><source src={voiceUrl(url)} type={mimeType}/></audio>{durationSeconds!==undefined&&<span>{formatDuration(durationSeconds)}</span>}</div>}
+type AudioContextWindow=Window&{webkitAudioContext?:typeof AudioContext};
+async function inspectAudioSignal(blob:Blob):Promise<boolean|null>{
+  const AudioContextConstructor=window.AudioContext||(window as AudioContextWindow).webkitAudioContext;
+  if(!AudioContextConstructor)return null;
+  let context:AudioContext|undefined;
+  try{
+    context=new AudioContextConstructor();
+    const decoded=await context.decodeAudioData(await blob.arrayBuffer());
+    let peak=0;
+    let squareSum=0;
+    let sampleCount=0;
+    for(let channel=0;channel<decoded.numberOfChannels;channel++){
+      const samples=decoded.getChannelData(channel);
+      for(let index=0;index<samples.length;index++){
+        const magnitude=Math.abs(samples[index]);
+        peak=Math.max(peak,magnitude);
+        squareSum+=samples[index]*samples[index];
+        sampleCount++;
+      }
+    }
+    const rms=sampleCount?Math.sqrt(squareSum/sampleCount):0;
+    console.info('Decoded voice signal check',{bytes:blob.size,mimeType:blob.type||'not reported',sampleRate:decoded.sampleRate,channels:decoded.numberOfChannels,peak,rms});
+    return peak>=0.001&&rms>=0.00005;
+  }catch(error){
+    console.warn('Audio signal decoding is not available for this recording; native player support will be checked instead.',error);
+    return null;
+  }finally{
+    if(typeof context!=='undefined'&&context.state!=='closed')await context.close().catch(error=>console.warn('Could not close audio verification context:',error));
+  }
+}
+function VoiceMessage({url,mimeType,durationSeconds}:{url:string;mimeType?:string;durationSeconds?:number}){
+  const [playbackError,setPlaybackError]=useState('');
+  return <div className="chat-voice-message">
+    <audio
+      src={voiceUrl(url)}
+      controls
+      preload="metadata"
+      aria-label="Voice message"
+      onLoadedMetadata={event=>{
+        const audio=event.currentTarget;
+        console.info('Voice message media loaded', {url,mimeType,durationSeconds:audio.duration,readyState:audio.readyState});
+        setPlaybackError('');
+      }}
+      onError={event=>{
+        const mediaError=event.currentTarget.error;
+        console.error('Voice message playback failed', {url,mimeType,code:mediaError?.code,message:mediaError?.message});
+        setPlaybackError('This voice message could not be decoded by this browser.');
+      }}
+    />
+    {durationSeconds!==undefined&&<span>{formatDuration(durationSeconds)}</span>}
+    {playbackError&&<small className="chat-recording-error" role="alert">{playbackError}</small>}
+  </div>;
+}
 function PresenceHeartbeat(){useEffect(()=>{const heartbeat=()=>{if(localStorage.getItem('zera_token'))api('/api/presence',{method:'POST'}).catch(error=>console.error('Could not update account presence:',error))};heartbeat();const timer=window.setInterval(heartbeat,45000);return()=>window.clearInterval(timer)},[]);return null}
 function NotificationSoundMonitor({user}:{user:User|null}){
   const audioContextRef=useRef<AudioContext|null>(null);
@@ -544,15 +596,25 @@ function Messages({user}:{user:User|null}){
     try{
       const stream=await navigator.mediaDevices.getUserMedia({audio:true});
       streamRef.current=stream;
+      const audioTracks=stream.getAudioTracks();
+      if(!audioTracks.length||audioTracks.some(track=>!track.enabled||track.muted||track.readyState!=='live')){
+        stream.getTracks().forEach(track=>track.stop());
+        streamRef.current=null;
+        throw new Error('The microphone did not provide a live audio track. Check microphone access and try again.');
+      }
+      console.info('Microphone audio track ready',audioTracks.map(track=>({enabled:track.enabled,muted:track.muted,readyState:track.readyState,settings:{sampleRate:track.getSettings().sampleRate,channelCount:track.getSettings().channelCount}})));
       chunksRef.current=[];
       cancelRecordingRef.current=false;
       const preferredType=['audio/webm;codecs=opus','audio/mp4','audio/webm','audio/ogg;codecs=opus'].find(type=>MediaRecorder.isTypeSupported(type));
       const recorder=new MediaRecorder(stream,preferredType?{mimeType:preferredType}:undefined);
       recorderRef.current=recorder;
+      console.info('MediaRecorder started',{reportedMimeType:recorder.mimeType||'not reported',requestedMimeType:preferredType||'browser default',audioTrackCount:audioTracks.length});
       recordingStartedAtRef.current=Date.now();
       setRecordingSeconds(0);
-      recorder.ondataavailable=event=>{if(event.data.size)chunksRef.current.push(event.data)};
-      recorder.onstop=()=>{
+      recorder.ondataavailable=event=>{
+        if(event.data.size)chunksRef.current.push(event.data);
+      };
+      recorder.onstop=async()=>{
         if(recordingTimerRef.current!==undefined)window.clearInterval(recordingTimerRef.current);
         recordingTimerRef.current=undefined;
         stream.getTracks().forEach(track=>track.stop());
@@ -561,16 +623,23 @@ function Messages({user}:{user:User|null}){
         setRecording(false);
         clearChatStatus(selected.id);
         if(cancelRecordingRef.current){chunksRef.current=[];return}
-        const blob=new Blob(chunksRef.current,{type:recorder.mimeType||'audio/webm'});
+        const capturedChunks=chunksRef.current;
+        const chunkBytes=capturedChunks.reduce((total,chunk)=>total+chunk.size,0);
+        const recordedMime=recorder.mimeType||capturedChunks.find(chunk=>chunk.type)?.type||'';
+        const blob=new Blob(capturedChunks,recordedMime?{type:recordedMime}:{});
         chunksRef.current=[];
         const duration=Math.ceil((Date.now()-recordingStartedAtRef.current)/1000);
+        console.info('Voice recording stopped', {mimeType:blob.type||'not reported by MediaRecorder',chunkCount:capturedChunks.length,chunkBytes,blobBytes:blob.size,durationSeconds:duration});
         if(blob.size>12*1024*1024){setRecordingError('This voice message is too large. Record a shorter message and try again.');return}
-        if(!blob.size){setRecordingError('No audio was captured. Check microphone access and try again.');return}
+        if(!capturedChunks.length||!chunkBytes||!blob.size){console.error('Voice recording produced an empty audio Blob',{mimeType:blob.type,chunkCount:capturedChunks.length,chunkBytes,blobBytes:blob.size});setRecordingError('No audio data was captured. Check microphone access and try again.');return}
+        if(!blob.type){console.error('MediaRecorder did not report an audio MIME type; the server will identify the container from the recorded bytes.')}
+        const signalPresent=await inspectAudioSignal(blob);
+        if(signalPresent===false){console.error('Captured voice recording contains no audible decoded microphone signal',{mimeType:blob.type,bytes:blob.size});setRecordingError('The recording contains no audible microphone signal. Check the selected microphone and record again.');return}
         pendingSendKeyRef.current=null;
         setVoiceDraft(blob);
         setVoiceDraftDuration(duration);
       };
-      recorder.onerror=()=>setRecordingError('The recording stopped unexpectedly. Please try again.');
+      recorder.onerror=event=>{console.error('MediaRecorder reported a recording error',event);setRecordingError('The recording stopped unexpectedly. Please try again.')};
       recorder.start(250);
       setRecording(true);
       socketRef.current?.emit('chat:status',{toUserId:selected.id,status:'recording'});
@@ -588,7 +657,8 @@ function Messages({user}:{user:User|null}){
       streamRef.current?.getTracks().forEach(track=>track.stop());
       streamRef.current=null;
       const denied=error instanceof Error&&['NotAllowedError','PermissionDeniedError'].includes(error.name);
-      setRecordingError(denied?'Microphone access was denied. Allow microphone access in your browser settings to record a voice message.':'Could not access the microphone. Check your device and browser permissions.');
+      if(error instanceof Error&&error.message.startsWith('The microphone did not provide'))setRecordingError(error.message);
+      else setRecordingError(denied?'Microphone access was denied. Allow microphone access in your browser settings to record a voice message.':'Could not access the microphone. Check your device and browser permissions.');
       clearChatStatus(selected.id);
     }
   };
@@ -608,10 +678,38 @@ function Messages({user}:{user:User|null}){
         outgoing.push(await apiUpload<ChatMessage>(`/api/messages/${recipientId}/image`,form,`${requestKey}:image`));
       }
       if(voiceDraft){
+        if(!voiceDraft.size||voiceDraft.size>12*1024*1024)throw new Error('The recorded voice message is empty or exceeds the 12 MB limit. Record it again.');
+        console.info('Uploading recorded voice message', {bytes:voiceDraft.size,mimeType:voiceDraft.type||'not reported by MediaRecorder',durationSeconds:voiceDraftDuration});
         const form=new FormData();
         form.append('voice',voiceDraft,`voice-${Date.now()}`);
         form.append('durationSeconds',String(voiceDraftDuration));
-        outgoing.push(await apiUpload<ChatMessage>(`/api/messages/${recipientId}/voice`,form,`${requestKey}:voice`));
+        const uploaded=await apiUpload<ChatMessage&{voiceSizeBytes:number;voiceSha256:string}>(`/api/messages/${recipientId}/voice`,form,`${requestKey}:voice`);
+        if(!uploaded.voiceUrl||!uploaded.voiceMimeType||uploaded.voiceSizeBytes<=0||!uploaded.voiceSha256)throw new Error('The server did not confirm a valid stored voice recording.');
+        const storedResponse=await fetch(voiceUrl(uploaded.voiceUrl),{cache:'no-store'});
+        if(!storedResponse.ok)throw new Error(`The uploaded voice message could not be read back from storage (${storedResponse.status}).`);
+        const storedAudio=await storedResponse.blob();
+        if(storedAudio.size!==uploaded.voiceSizeBytes||storedAudio.type.split(';')[0]!==uploaded.voiceMimeType){
+          console.error('Stored voice message verification failed',{expectedBytes:uploaded.voiceSizeBytes,storedBytes:storedAudio.size,expectedMime:uploaded.voiceMimeType,storedMime:storedAudio.type});
+          throw new Error('The uploaded voice recording did not pass its storage integrity check. Please try recording again.');
+        }
+        const storedSignalPresent=await inspectAudioSignal(storedAudio);
+        if(storedSignalPresent===false){
+          console.error('Stored voice recording contains no audible decoded signal',{url:uploaded.voiceUrl,mimeType:uploaded.voiceMimeType,bytes:storedAudio.size});
+          throw new Error('The uploaded voice recording has no audible audio signal. The stored message was not added to this chat; please record it again.');
+        }
+        const storedHash=await crypto.subtle.digest('SHA-256',await storedAudio.arrayBuffer());
+        const storedHashHex=Array.from(new Uint8Array(storedHash),byte=>byte.toString(16).padStart(2,'0')).join('');
+        if(storedHashHex!==uploaded.voiceSha256){
+          console.error('Stored voice message checksum did not match the server upload checksum',{url:uploaded.voiceUrl});
+          throw new Error('The uploaded voice recording failed its integrity check. Please try again.');
+        }
+        console.info('Uploaded voice message verified', {url:uploaded.voiceUrl,bytes:storedAudio.size,mimeType:uploaded.voiceMimeType});
+        const playbackProbe=new Audio();
+        if(!playbackProbe.canPlayType(uploaded.voiceMimeType)){
+          console.error('This browser does not report playback support for the stored voice format',{mimeType:uploaded.voiceMimeType,url:uploaded.voiceUrl});
+          throw new Error(`This browser cannot play the recorded ${uploaded.voiceMimeType} format. Try another supported browser.`);
+        }
+        outgoing.push(uploaded);
       }
       if(body.trim()){
         outgoing.push(await apiTyped<ChatMessage>('/api/messages',{
