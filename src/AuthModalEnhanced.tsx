@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, BriefcaseBusiness, Code2, X } from 'lucide-react';
 import { BrandMark } from './BrandMark';
+import './auth.css';
 
 const API = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://zera-hub-api.onrender.com' : 'http://localhost:4000');
 type Mode = 'developer' | 'hire' | 'signin' | 'forgot';
@@ -88,6 +89,14 @@ export function AuthModalEnhanced({ type, site, onClose, onSignedIn }: Props) {
       <p>{mode === 'forgot' ? 'Enter your registered email and we’ll send a secure password-reset link.' : mode === 'signin' ? 'Continue to your workspace.' : 'Create your identity and start connecting inside the ecosystem.'}</p>
       {notice && <p className="auth-notice" role="status">{notice}</p>}
       {error && <p className="auth-notice" role="alert">{error}</p>}
+      {mode !== 'signin' && mode !== 'forgot' && <div className="auth-role-choice" role="group" aria-label="Choose your account type">
+        <button type="button" className={`auth-role-option ${mode === 'developer' ? 'active' : ''}`} aria-pressed={mode === 'developer'} onClick={() => { setMode('developer'); setAccountType('developer'); }}>
+          <Code2 size={18}/><span><b>Developer</b><small>Showcase your skills and connect.</small></span>
+        </button>
+        <button type="button" className={`auth-role-option ${mode === 'hire' ? 'active' : ''}`} aria-pressed={mode === 'hire'} onClick={() => { setMode('hire'); setAccountType('hire'); }}>
+          <BriefcaseBusiness size={18}/><span><b>Hiring</b><small>Discover talent and build a team.</small></span>
+        </button>
+      </div>}
       <form onSubmit={submit}>
         <div className="auth-fields">
           {mode !== 'signin' && mode !== 'forgot' && <>
@@ -97,10 +106,6 @@ export function AuthModalEnhanced({ type, site, onClose, onSignedIn }: Props) {
           <input className="modal-input" type="email" name="email" autoComplete="email" placeholder="Email" value={email} onChange={event => setEmail(event.target.value)} required/>
           {mode !== 'forgot' && <input className="modal-input" type="password" name="password" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder="Password (8+ characters)" value={password} onChange={event => setPassword(event.target.value)} minLength={mode === 'signin' ? undefined : 8} required/>}
         </div>
-        {mode !== 'forgot' && mode !== 'signin' && <div className="auth-fields">
-          <button type="button" className="btn btn-ghost" onClick={() => { setMode('developer'); setAccountType('developer'); }}>Developer</button>
-          <button type="button" className="btn btn-ghost" onClick={() => { setMode('hire'); setAccountType('hire'); }}>Hire a developer</button>
-        </div>}
         <button className="btn btn-primary modal-submit" type="submit" disabled={submitting}>
           {submitting ? 'Please wait…' : mode === 'forgot' ? 'Send reset link' : mode === 'signin' ? 'Sign in' : 'Sign up'} <ArrowRight size={15}/>
         </button>

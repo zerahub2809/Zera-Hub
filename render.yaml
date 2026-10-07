@@ -11,3 +11,13 @@ services:
     envVars:
       - key: DATA_DIR
         value: /var/data
+      - key: FRONTEND_URL
+        value: https://zera-hub0.vercel.app
+      - key: CLIENT_URL
+        value: https://zera-hub0.vercel.app
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: PASSWORD_RESET_FROM
+        sync: false

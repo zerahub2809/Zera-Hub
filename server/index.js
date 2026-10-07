@@ -135,7 +135,7 @@ try{webPush=(await import('web-push')).default;}catch(error){/* optional */}
 if(vapidPublicKey&&vapidPrivateKey&&webPush)webPush.setVapidDetails(process.env.VAPID_SUBJECT||'mailto:zerahub@outlook.com',vapidPublicKey,vapidPrivateKey);
 const asyncRoute=handler=>(req,res,next)=>Promise.resolve(handler(req,res,next)).catch(next);
 app.use(helmet({crossOriginResourcePolicy:{policy:'cross-origin'},crossOriginOpenerPolicy:false}));
-app.use(cors({origin:allowClientOrigin,credentials:true,methods:['GET','POST','PUT','PATCH','DELETE','OPTIONS'],allowedHeaders:['Content-Type','Authorization','Accept','X-Requested-With']}));
+app.use(cors({origin:allowClientOrigin,credentials:true,methods:['GET','POST','PUT','PATCH','DELETE','OPTIONS'],allowedHeaders:['Content-Type','Authorization','Accept','X-Requested-With','Idempotency-Key']}));
 app.options('*',cors({origin:allowClientOrigin,credentials:true}));
 app.use(express.json({limit:'2mb'}));
 app.use('/uploads',express.static(uploadDir));
@@ -352,6 +352,7 @@ app.post('/api/auth/password-reset',asyncRoute(async(req,res)=>{
         delete user.passwordResetExpiresAt;
         await save(db);
         console.error('Password reset email delivery failed:',error.message);
+        return res.status(502).json({error:'Password reset email could not be sent. Please try again later.'});
       }
     }
   }
