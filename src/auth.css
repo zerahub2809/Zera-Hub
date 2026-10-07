@@ -47,8 +47,54 @@
   line-height: 1.5;
 }
 
+.auth-reset-card .auth-reset-password-field {
+  display: block;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.auth-reset-card .auth-reset-password-input {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  height: 48px;
+  min-height: 48px;
+  max-height: 48px;
+  padding-right: 52px;
+  resize: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+.auth-reset-card .auth-reset-password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  touch-action: manipulation;
+}
+
+.auth-reset-card .auth-reset-password-toggle:hover {
+  color: var(--text-primary, #edf2ff);
+}
+
 @media (max-width: 480px) {
   .auth-role-choice {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .auth-reset-card .auth-reset-password-input {
+    font-size: 16px;
   }
 }

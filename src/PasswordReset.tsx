@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowRight, Lock } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, Lock } from 'lucide-react';
+import './auth.css';
 
 const API = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://zera-hub-api.onrender.com' : 'http://localhost:4000');
 
@@ -9,6 +10,8 @@ export function PasswordResetPage() {
   const navigate = useNavigate();
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
   const [error, setError] = useState('');
   const [complete, setComplete] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -47,8 +50,14 @@ export function PasswordResetPage() {
       {!token ? <p className="platform-error" role="alert">This reset link is missing its token. Request a new link from sign in.</p>
         : complete ? <p className="auth-notice" role="status">Your password was reset. Return to sign in.</p>
           : <form onSubmit={submit}>
-            <label>New password<input type="password" autoComplete="new-password" minLength={8} required value={password} onChange={event => setPassword(event.target.value)}/></label>
-            <label>Confirm new password<input type="password" autoComplete="new-password" minLength={8} required value={confirmation} onChange={event => setConfirmation(event.target.value)}/></label>
+            <label>New password<span className="auth-reset-password-field">
+              <input className="auth-reset-password-input" type={showPassword ? 'text' : 'password'} autoComplete="new-password" autoCapitalize="none" spellCheck={false} minLength={8} required value={password} onChange={event => setPassword(event.target.value)}/>
+              <button className="auth-reset-password-toggle" type="button" aria-label={showPassword ? 'Hide new password' : 'Show new password'} aria-pressed={showPassword} onPointerDown={event => event.preventDefault()} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button>
+            </span></label>
+            <label>Confirm new password<span className="auth-reset-password-field">
+              <input className="auth-reset-password-input" type={showConfirmation ? 'text' : 'password'} autoComplete="new-password" autoCapitalize="none" spellCheck={false} minLength={8} required value={confirmation} onChange={event => setConfirmation(event.target.value)}/>
+              <button className="auth-reset-password-toggle" type="button" aria-label={showConfirmation ? 'Hide confirmation password' : 'Show confirmation password'} aria-pressed={showConfirmation} onPointerDown={event => event.preventDefault()} onClick={() => setShowConfirmation(value => !value)}>{showConfirmation ? <EyeOff size={18}/> : <Eye size={18}/>}</button>
+            </span></label>
             {error && <p className="platform-error" role="alert">{error}</p>}
             <button className="btn btn-primary" type="submit" disabled={submitting}>{submitting ? 'Updating…' : 'Update password'} <ArrowRight size={15}/></button>
           </form>}
