@@ -25,14 +25,14 @@ Open `http://localhost:5173`.
 Copy `.env.example` to `.env` and set:
 - `JWT_SECRET` to a long random secret.
 - `ADMIN_PASSWORD` to a strong private admin password.
-- `GMAIL_USER` and `GMAIL_APP_PASSWORD` on the backend to send password-reset emails. Use a Google App Password for an account with 2-Step Verification enabled; optionally set `PASSWORD_RESET_FROM` to the verified sender address.
-- `FRONTEND_URL` to the public frontend origin so reset links open the deployed password-reset page.
+- `GMAIL_OAUTH_CLIENT_ID`, `GMAIL_OAUTH_CLIENT_SECRET`, `GMAIL_OAUTH_REDIRECT_URI`, and `GMAIL_OAUTH_SETUP_KEY` on the backend for Gmail API password-reset email.
+- `CLIENT_URL` to the public frontend origin so reset links open the deployed password-reset page.
 - `OPENAI_API_KEY` if you want live ZERA AI responses.
 - `OPENAI_MODEL` to the model you want to use.
 
 Do not put private AI keys in React/Vite source code. The browser calls `/api/ai/chat`; the server calls the AI provider.
 
-For Render, add `GMAIL_USER`, `GMAIL_APP_PASSWORD`, and `PASSWORD_RESET_FROM` in the web service's Environment settings using the Gmail sender address and its Google App Password. The `render.yaml` blueprint keeps these private values unsynced while setting the frontend origin; do not add them to Vite variables or frontend code. If SMTP delivery fails, the reset request returns an error and the temporary reset token is cleared so the user can retry.
+For Gmail API setup on Render, create a Google Cloud OAuth 2.0 Web application client with redirect URI `https://zera-hub-api.onrender.com/api/auth/gmail/callback`. Add `GMAIL_OAUTH_CLIENT_ID`, `GMAIL_OAUTH_CLIENT_SECRET`, that exact `GMAIL_OAUTH_REDIRECT_URI`, and a long random `GMAIL_OAUTH_SETUP_KEY` to the Render service environment; never expose these in Vite variables or frontend code. Once deployed, open `/api/auth/gmail/authorize` on the backend in a browser, enter `zera-setup` as the Basic Auth username and the setup key as the password, then authorize `onikesamuel@gmail.com`. The callback stores the offline refresh token on the Render persistent disk at `/var/data/gmail-oauth.json`; subsequent sends refresh access tokens automatically. Ensure `CLIENT_URL` is set to the deployed frontend origin.
 
 ZERA AI has no provider requirement at startup. With no key configured, `/ai` clearly reports that live responses are unavailable and does not send chat content. To connect an OpenAI-compatible provider later, configure `AI_API_KEY` (or `OPENAI_API_KEY`) server-side, optionally set `AI_BASE_URL` (defaults to `https://api.openai.com/v1`) and `AI_MODEL` (or `OPENAI_MODEL`). Chat history is private to the authenticated account and only user-submitted prompts are sent to the provider.
 

@@ -19,6 +19,7 @@ import { connectDatabase } from './config/database.js';
 import { createPlatformRouter } from './routes/platform.js';
 import { createCommunityRouter } from './routes/community.js';
 import { createAIRouter } from './routes/ai.js';
+import { createGmailOAuthRouter, sendPasswordResetEmail as sendGmailPasswordResetEmail } from './services/gmailOAuth.js';
 
 const __filename=fileURLToPath(import.meta.url);
 const __dirname=path.dirname(__filename);
@@ -155,6 +156,7 @@ const authLimiter=rateLimit({windowMs:15*60*1000,max:200,standardHeaders:true,le
 const aiLimiter=rateLimit({windowMs:15*60*1000,max:100,standardHeaders:true,legacyHeaders:false});
 const reportLimiter=rateLimit({windowMs:15*60*1000,max:30,standardHeaders:true,legacyHeaders:false});
 app.use('/api/auth',authLimiter);
+app.use('/api/auth/gmail',createGmailOAuthRouter({dataDir}));
 app.use('/api/admin/login',authLimiter);
 app.use('/api/ai',aiLimiter,createAIRouter({auth,load,save}));
 app.use('/api/reports',reportLimiter);
@@ -345,7 +347,7 @@ async function sendPasswordResetEmail(email,link){
 }
 app.post('/api/auth/signup',asyncRoute(async(req,res)=>{const {name,username,email,password,accountType='developer'}=req.body||{};if(!name||!username||!email||!password)return res.status(400).json({error:'Name, username, email and password are required'});if(!['developer','hire'].includes(accountType))return res.status(400).json({error:'Account type must be developer or hire'});if(password.length<8)return res.status(400).json({error:'Password must be at least 8 characters'});const db=load();if(db.users.some(u=>u.email.toLowerCase()===email.toLowerCase()||u.username.toLowerCase()===username.toLowerCase()))return res.status(409).json({error:'An account with those details already exists'});const user={id:crypto.randomUUID(),name:name.trim(),username:username.trim().replace(/^@/,''),email:email.trim().toLowerCase(),passwordHash:await bcrypt.hash(password,12),accountType,role:'user',status:'active',verified:false,bio:'',skills:[],createdAt:new Date().toISOString()};db.users.push(user);await save(db);res.status(201).json({token:tokenFor(user),user:publicUser(user)});}));
 app.post('/api/auth/password-reset',asyncRoute(async(req,res)=>{
-  if(!process.env.GMAIL_USER||!process.env.GMAIL_APP_PASSWORD)return res.status(503).json({error:'Password reset email is not configured on this server'});
+  if(!process.env.GMAIL_OAUTH_CLIENT_ID||!process.env.GMAIL_OAUTH_CLIENT_SECRET)return res.status(503).json({error:'Gmail API OAuth client is not configured on this server'});
   const email=String(req.body?.email||'').trim().toLowerCase();
   if(email&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
     const db=load();
@@ -355,9 +357,9 @@ app.post('/api/auth/password-reset',asyncRoute(async(req,res)=>{
       user.passwordResetTokenHash=createHash('sha256').update(token).digest('hex');
       user.passwordResetExpiresAt=new Date(Date.now()+60*60*1000).toISOString();
       await save(db);
-      const frontend=(process.env.FRONTEND_URL||process.env.CLIENT_URL||'http://localhost:5173').split(',')[0].trim().replace(/\/+$/,'');
+      const frontend=(process.env.CLIENT_URL||'http://localhost:5173').split(',')[0].trim().replace(/\/+$/,'');
       try{
-        await sendPasswordResetEmail(user.email,`${frontend}/reset-password?token=${encodeURIComponent(token)}`);
+        await sendGmailPasswordResetEmail({dataDir,email:user.email,link:`${frontend}/reset-password?token=${encodeURIComponent(token)}`});
       }catch(error){
         delete user.passwordResetTokenHash;
         delete user.passwordResetExpiresAt;

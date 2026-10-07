@@ -2,8 +2,8 @@ services:
   - type: web
     name: zera-hub
     runtime: node
-    buildCommand: npm install && npm run build
-    startCommand: node server/index.js
+    buildCommand: npm install && node --check server/index.js && node --check server/services/gmailOAuth.js && npm run build
+    startCommand: npm run server
     disk:
       name: zera-hub-data
       mountPath: /var/data
@@ -15,9 +15,11 @@ services:
         value: https://zera-hub0.vercel.app
       - key: CLIENT_URL
         value: https://zera-hub0.vercel.app
-      - key: GMAIL_USER
+      - key: GMAIL_OAUTH_REDIRECT_URI
+        value: https://zera-hub-api.onrender.com/api/auth/gmail/callback
+      - key: GMAIL_OAUTH_CLIENT_ID
         sync: false
-      - key: GMAIL_APP_PASSWORD
+      - key: GMAIL_OAUTH_CLIENT_SECRET
         sync: false
-      - key: PASSWORD_RESET_FROM
+      - key: GMAIL_OAUTH_SETUP_KEY
         sync: false
