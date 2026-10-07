@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, BriefcaseBusiness, Code2, X } from 'lucide-react';
+import { ArrowRight, BriefcaseBusiness, Code2, Eye, EyeOff, X } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import './auth.css';
 
@@ -32,6 +32,7 @@ export function AuthModalEnhanced({ type, site, onClose, onSignedIn }: Props) {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -104,7 +105,10 @@ export function AuthModalEnhanced({ type, site, onClose, onSignedIn }: Props) {
             <input className="modal-input" name="username" autoComplete="username" placeholder="Username" value={username} onChange={event => setUsername(event.target.value)} required/>
           </>}
           <input className="modal-input" type="email" name="email" autoComplete="email" placeholder="Email" value={email} onChange={event => setEmail(event.target.value)} required/>
-          {mode !== 'forgot' && <input className="modal-input" type="password" name="password" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder="Password (8+ characters)" value={password} onChange={event => setPassword(event.target.value)} minLength={mode === 'signin' ? undefined : 8} required/>}
+          {mode !== 'forgot' && <span className="auth-password-field">
+            <input className="modal-input auth-password-input" type={showPassword ? 'text' : 'password'} name="password" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder="Password (8+ characters)" value={password} onChange={event => setPassword(event.target.value)} minLength={mode === 'signin' ? undefined : 8} required/>
+            <button className="auth-password-toggle" type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} onPointerDown={event => event.preventDefault()} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button>
+          </span>}
         </div>
         <button className="btn btn-primary modal-submit" type="submit" disabled={submitting}>
           {submitting ? 'Please wait…' : mode === 'forgot' ? 'Send reset link' : mode === 'signin' ? 'Sign in' : 'Sign up'} <ArrowRight size={15}/>

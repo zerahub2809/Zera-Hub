@@ -10,6 +10,8 @@ import {
   BriefcaseBusiness,
   CheckCircle2,
   Code2,
+  Eye,
+  EyeOff,
   FileCode2,
   Flag,
   FolderKanban,
@@ -130,6 +132,7 @@ export default function AdminControlCenter() {
   const [token, setToken] = useState(() => localStorage.getItem('zera_admin'));
   const [email, setEmail] = useState(ADMIN_EMAIL);
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [data, setData] = useState<AdminData | null>(null);
   const [security, setSecurity] = useState<SecurityData | null>(null);
   const [activeSection, setActiveSection] = useState<Section>('Overview');
@@ -392,7 +395,10 @@ export default function AdminControlCenter() {
           <p>Sign in with your authorized administrator credentials.</p>
           {error && <div className="admin-alert error"><AlertTriangle size={16} />{error}</div>}
           <label>Administrator email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" required /></label>
-          <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>
+          <label>Password<span className="admin-password-field">
+            <input type={showPassword ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
+            <button className="admin-password-toggle" type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} onPointerDown={(event) => event.preventDefault()} onClick={() => setShowPassword((value) => !value)}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button>
+          </span></label>
           <button className="admin-primary-button" disabled={busy} type="submit">{busy ? 'Signing in…' : 'Secure sign in'}<ArrowRight size={16} /></button>
           <div className="admin-login-foot"><Lock size={13} /> Protected by server-side administrator authorization</div>
         </form>
