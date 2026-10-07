@@ -1,5 +1,8 @@
 import express from 'express';
 import dns from 'node:dns';
+import tls from 'node:tls';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { once } from 'node:events';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -158,7 +161,8 @@ app.use('/api/messages',(req,res,next)=>auth(req,res,()=>{
 }));
 
 function tokenFor(user){return jwt.sign({id:user.id,role:user.role||'user',email:user.role==='admin'?user.email:undefined},JWT_SECRET,{expiresIn:'7d'});}
-function auth(req,res,next){const raw=req.headers.authorization||'';const token=raw.startsWith('Bearer ')?raw.slice(7):null;if(!token)return res.status(401).json({error:'Authentication required'});try{req.user=jwt.verify(token,JWT_SECRET);if(req.user.role!=='admin'){const db=load();const account=db.users.find(user=>user.id===req.user.id);if(!account)return res.status(401).json({error:'Account session is no longer valid'});if(account.status==='restricted'&&account.restrictedUntil&&Date.parse(account.restrictedUntil)<=Date.now()){account.status='active';account.restrictedUntil=null;save(db).then(()=>next(),next);return;}if(account.status!=='active')return res.status(403).json({error:account.status==='restricted'?'Account temporarily restricted':'Account suspended'});}next();}catch(error){if(error?.name==='JsonWebTokenError'||error?.name==='TokenExpiredError')return res.status(401).json({error:'Invalid or expired session'});next(error);}}
+function accountTypeOf(user){return user.accountType==='hire'?'hire':'developer';}
+function auth(req,res,next){const raw=req.headers.authorization||'';const token=raw.startsWith('Bearer ')?raw.slice(7):null;if(!token)return res.status(401).json({error:'Authentication required'});try{req.user=jwt.verify(token,JWT_SECRET);if(req.user.role!=='admin'){const db=load();const account=db.users.find(user=>user.id===req.user.id);if(!account)return res.status(401).json({error:'Account session is no longer valid'});req.user.accountType=accountTypeOf(account);if(account.status==='restricted'&&account.restrictedUntil&&Date.parse(account.restrictedUntil)<=Date.now()){account.status='active';account.restrictedUntil=null;save(db).then(()=>next(),next);return;}if(account.status!=='active')return res.status(403).json({error:account.status==='restricted'?'Account temporarily restricted':'Account suspended'});}next();}catch(error){if(error?.name==='JsonWebTokenError'||error?.name==='TokenExpiredError')return res.status(401).json({error:'Invalid or expired session'});next(error);}}
 function areConnected(firstId,secondId){return (load().connections||[]).some(connection=>connection.status==='accepted'&&((connection.requesterId===firstId&&connection.recipientId===secondId)||(connection.requesterId===secondId&&connection.recipientId===firstId)));}
 io.use((socket,next)=>{
   try{
@@ -179,6 +183,10 @@ function publicUser(u){const lastSeenAt=u.lastSeenAt||null;return {id:u.id,name:
 async function notifyUser(userId,type,title,body,data={}){
   const db=load();
   db.notifications||=[];
+  if(type==='message'&&typeof data.messageId==='string'){
+    const existing=db.notifications.find(item=>item.userId===userId&&item.type==='message'&&item.data?.messageId===data.messageId);
+    if(existing)return existing;
+  }
   const actorId=data.userId||data.fromUserId;
   const actor=actorId?db.users.find(item=>item.id===actorId):null;
   const notification={id:crypto.randomUUID(),userId,type,title,body,data,actor:actor?publicUser(actor):null,createdAt:new Date().toISOString(),readAt:null};
@@ -250,16 +258,128 @@ app.get('/api/auth/me',auth,(req,res)=>{
 });
 app.post('/api/presence',auth,asyncRoute(async(req,res)=>{const db=load();const user=db.users.find(item=>item.id===req.user.id);if(!user)return res.status(404).json({error:'User not found'});user.lastSeenAt=new Date().toISOString();await save(db);res.json({lastSeenAt:user.lastSeenAt});}));
 app.get('/api/notifications',auth,(req,res)=>{const db=load();res.json((db.notifications||[]).filter(item=>item.userId===req.user.id).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,100));});
-app.patch('/api/notifications/read',auth,asyncRoute(async(req,res)=>{const fromUserId=req.body?.fromUserId;if(fromUserId!==undefined&&typeof fromUserId!=='string')return res.status(400).json({error:'fromUserId must be text'});const db=load();const now=new Date().toISOString();for(const item of db.notifications||[])if(item.userId===req.user.id&&!item.readAt&&(!fromUserId||(item.type==='message'&&item.data?.fromUserId===fromUserId)))item.readAt=now;await save(db);res.json({ok:true});}));
+app.patch('/api/notifications/read',auth,asyncRoute(async(req,res)=>{const fromUserId=req.body?.fromUserId;const notificationId=req.body?.notificationId;if(fromUserId!==undefined&&typeof fromUserId!=='string')return res.status(400).json({error:'fromUserId must be text'});if(notificationId!==undefined&&(typeof notificationId!=='string'||!notificationId.trim()))return res.status(400).json({error:'notificationId must be non-empty text'});const db=load();const now=new Date().toISOString();for(const item of db.notifications||[])if(item.userId===req.user.id&&!item.readAt&&(notificationId!==undefined?item.id===notificationId:!fromUserId||(item.type==='message'&&item.data?.fromUserId===fromUserId)))item.readAt=now;await save(db);res.json({ok:true});}));
 app.get('/api/push/public-key',(req,res)=>res.json({publicKey:vapidPublicKey&&webPush?vapidPublicKey:null}));
 app.post('/api/push/subscribe',auth,asyncRoute(async(req,res)=>{if(!vapidPublicKey||!vapidPrivateKey||!webPush)return res.status(503).json({error:'Browser push is not configured on this server'});const subscription=req.body?.subscription;if(!subscription||typeof subscription.endpoint!=='string'||typeof subscription.keys?.p256dh!=='string'||typeof subscription.keys?.auth!=='string')return res.status(400).json({error:'A valid push subscription is required'});const db=load();db.pushSubscriptions||=[];const current=db.pushSubscriptions.find(item=>item.userId===req.user.id&&item.subscription.endpoint===subscription.endpoint);if(current)current.subscription=subscription;else db.pushSubscriptions.push({id:crypto.randomUUID(),userId:req.user.id,subscription,createdAt:new Date().toISOString()});await save(db);res.status(201).json({ok:true});}));
 app.delete('/api/push/subscribe',auth,asyncRoute(async(req,res)=>{const endpoint=req.body?.endpoint;if(typeof endpoint!=='string')return res.status(400).json({error:'Subscription endpoint is required'});const db=load();db.pushSubscriptions=(db.pushSubscriptions||[]).filter(item=>item.userId!==req.user.id||item.subscription.endpoint!==endpoint);await save(db);res.json({ok:true});}));
-app.post('/api/auth/signup',asyncRoute(async(req,res)=>{const {name,username,email,password,accountType='developer'}=req.body||{};if(!name||!username||!email||!password)return res.status(400).json({error:'Name, username, email and password are required'});if(password.length<8)return res.status(400).json({error:'Password must be at least 8 characters'});const db=load();if(db.users.some(u=>u.email.toLowerCase()===email.toLowerCase()||u.username.toLowerCase()===username.toLowerCase()))return res.status(409).json({error:'An account with those details already exists'});const user={id:crypto.randomUUID(),name:name.trim(),username:username.trim().replace(/^@/,''),email:email.trim().toLowerCase(),passwordHash:await bcrypt.hash(password,12),accountType:accountType==='hire'?'hire':'developer',role:'user',status:'active',verified:false,bio:'',skills:[],createdAt:new Date().toISOString()};db.users.push(user);await save(db);res.status(201).json({token:tokenFor(user),user:publicUser(user)});}));
-app.post('/api/auth/login',asyncRoute(async(req,res)=>{const {email,password}=req.body||{};const db=load();const user=db.users.find(u=>u.email===String(email||'').trim().toLowerCase()||u.username.toLowerCase()===String(email||'').trim().toLowerCase());if(user?.status==='restricted'&&user.restrictedUntil&&Date.parse(user.restrictedUntil)<=Date.now()){user.status='active';user.restrictedUntil=null;await save(db);}if(!user||!(await bcrypt.compare(password||'',user.passwordHash))||user.status!=='active')return res.status(401).json({error:'Invalid email or password'});res.json({token:tokenFor(user),user:publicUser(user)});}));
+function smtpReplyReader(socket){
+  let buffer='';
+  let pendingLines=[];
+  const replies=[];
+  const waiters=[];
+  let failure=null;
+  const finish=()=>{
+    while(waiters.length&&replies.length)waiters.shift()(replies.shift());
+  };
+  socket.setEncoding('utf8');
+  socket.on('data',chunk=>{
+    buffer+=chunk;
+    let lineEnd;
+    while((lineEnd=buffer.indexOf('\n'))!==-1){
+      const line=buffer.slice(0,lineEnd).replace(/\r$/,'');
+      buffer=buffer.slice(lineEnd+1);
+      pendingLines.push(line);
+      if(/^\d{3} /.test(line)){
+        const lines=pendingLines;
+        pendingLines=[];
+        replies.push({code:Number(line.slice(0,3)),text:lines.join('\n')});
+        finish();
+      }
+    }
+  });
+  socket.on('error',error=>{failure=error;while(waiters.length)waiters.shift()(null,error);});
+  socket.on('close',()=>{if(!failure){failure=new Error('SMTP connection closed unexpectedly');while(waiters.length)waiters.shift()(null,failure);}});
+  return ()=>failure?Promise.reject(failure):replies.length?Promise.resolve(replies.shift()):new Promise((resolve,reject)=>waiters.push((reply,error)=>error?reject(error):resolve(reply)));
+}
+async function sendPasswordResetEmail(email,link){
+  const username=process.env.GMAIL_USER;
+  const password=process.env.GMAIL_APP_PASSWORD;
+  const from=process.env.PASSWORD_RESET_FROM||username;
+  if(!username||!password||!from||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(from))throw new Error('Gmail SMTP password-reset email is not configured');
+  const socket=tls.connect({host:'smtp.gmail.com',port:465,servername:'smtp.gmail.com',rejectUnauthorized:true});
+  socket.setTimeout(15000,()=>socket.destroy(new Error('Gmail SMTP connection timed out')));
+  const nextReply=smtpReplyReader(socket);
+  const expect=async(expected,command)=>{
+    if(command)socket.write(`${command}\r\n`);
+    const reply=await nextReply();
+    if(reply.code!==expected)throw new Error(`Gmail SMTP rejected a command (${reply.code})`);
+  };
+  try{
+    await once(socket,'secureConnect');
+    await expect(220);
+    await expect(250,'EHLO zera-hub.local');
+    const credentials=Buffer.from(`\0${username}\0${password.replace(/\s/g,'')}`).toString('base64');
+    await expect(235,`AUTH PLAIN ${credentials}`);
+    await expect(250,`MAIL FROM:<${from}>`);
+    await expect(250,`RCPT TO:<${email}>`);
+    await expect(354,'DATA');
+    const subject=Buffer.from('Reset your ZERA HUB password','utf8').toString('base64');
+    const body=Buffer.from(`We received a request to reset your ZERA HUB password.\n\nOpen this link to choose a new password (valid for one hour):\n${link}\n\nIf you did not request this, you can ignore this email.`,'utf8').toString('base64').match(/.{1,76}/g).join('\r\n');
+    const message=[
+      `From: <${from}>`,
+      `To: <${email}>`,
+      `Subject: =?UTF-8?B?${subject}?=`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      body,
+    ].join('\r\n').replace(/(^|\r\n)\./g,'$1..');
+    socket.write(`${message}\r\n.\r\n`);
+    await expect(250);
+    await expect(221,'QUIT');
+  } finally {
+    socket.destroy();
+  }
+}
+app.post('/api/auth/signup',asyncRoute(async(req,res)=>{const {name,username,email,password,accountType='developer'}=req.body||{};if(!name||!username||!email||!password)return res.status(400).json({error:'Name, username, email and password are required'});if(!['developer','hire'].includes(accountType))return res.status(400).json({error:'Account type must be developer or hire'});if(password.length<8)return res.status(400).json({error:'Password must be at least 8 characters'});const db=load();if(db.users.some(u=>u.email.toLowerCase()===email.toLowerCase()||u.username.toLowerCase()===username.toLowerCase()))return res.status(409).json({error:'An account with those details already exists'});const user={id:crypto.randomUUID(),name:name.trim(),username:username.trim().replace(/^@/,''),email:email.trim().toLowerCase(),passwordHash:await bcrypt.hash(password,12),accountType,role:'user',status:'active',verified:false,bio:'',skills:[],createdAt:new Date().toISOString()};db.users.push(user);await save(db);res.status(201).json({token:tokenFor(user),user:publicUser(user)});}));
+app.post('/api/auth/password-reset',asyncRoute(async(req,res)=>{
+  if(!process.env.GMAIL_USER||!process.env.GMAIL_APP_PASSWORD)return res.status(503).json({error:'Password reset email is not configured on this server'});
+  const email=String(req.body?.email||'').trim().toLowerCase();
+  if(email&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+    const db=load();
+    const user=db.users.find(item=>item.email===email);
+    if(user){
+      const token=randomBytes(32).toString('hex');
+      user.passwordResetTokenHash=createHash('sha256').update(token).digest('hex');
+      user.passwordResetExpiresAt=new Date(Date.now()+60*60*1000).toISOString();
+      await save(db);
+      const frontend=(process.env.FRONTEND_URL||process.env.CLIENT_URL||'http://localhost:5173').split(',')[0].trim().replace(/\/+$/,'');
+      try{
+        await sendPasswordResetEmail(user.email,`${frontend}/reset-password?token=${encodeURIComponent(token)}`);
+      }catch(error){
+        delete user.passwordResetTokenHash;
+        delete user.passwordResetExpiresAt;
+        await save(db);
+        console.error('Password reset email delivery failed:',error.message);
+      }
+    }
+  }
+  res.json({message:'If an account exists for that email, a password-reset link will be sent.'});
+}));
+app.post('/api/auth/password-reset/confirm',asyncRoute(async(req,res)=>{
+  const token=typeof req.body?.token==='string'?req.body.token:'';
+  const password=typeof req.body?.password==='string'?req.body.password:'';
+  if(!token||password.length<8)return res.status(400).json({error:'A valid reset token and password of at least 8 characters are required'});
+  const tokenHash=createHash('sha256').update(token).digest();
+  const db=load();
+  const user=db.users.find(item=>{
+    if(!item.passwordResetTokenHash||!item.passwordResetExpiresAt||Date.parse(item.passwordResetExpiresAt)<=Date.now())return false;
+    const savedHash=Buffer.from(item.passwordResetTokenHash,'hex');
+    return savedHash.length===tokenHash.length&&timingSafeEqual(savedHash,tokenHash);
+  });
+  if(!user)return res.status(400).json({error:'This password-reset link is invalid or expired. Request a new link.'});
+  user.passwordHash=await bcrypt.hash(password,12);
+  delete user.passwordResetTokenHash;
+  delete user.passwordResetExpiresAt;
+  await save(db);
+  res.json({ok:true});
+}));
+app.post('/api/auth/login',asyncRoute(async(req,res)=>{const {email,password,accountType}=req.body||{};if(accountType!==undefined&&!['developer','hire'].includes(accountType))return res.status(400).json({error:'Account type must be developer or hire'});const db=load();const user=db.users.find(u=>u.email===String(email||'').trim().toLowerCase()||u.username.toLowerCase()===String(email||'').trim().toLowerCase());if(user?.status==='restricted'&&user.restrictedUntil&&Date.parse(user.restrictedUntil)<=Date.now()){user.status='active';user.restrictedUntil=null;await save(db);}if(!user||!(await bcrypt.compare(password||'',user.passwordHash))||user.status!=='active')return res.status(401).json({error:'Invalid email or password'});if(accountType&&accountTypeOf(user)!==accountType)return res.status(403).json({error:`This account is registered as a ${accountTypeOf(user)==='hire'?'hirer':'developer'}. Sign in through the matching account area.`});res.json({token:tokenFor(user),user:publicUser(user)});}));
 app.get('/api/users',auth,(req,res)=>{const db=load();res.json(db.users.filter(u=>u.status==='active').map(publicUser));});
 app.get('/api/users/:id',auth,(req,res)=>{const u=load().users.find(x=>x.id===req.params.id);if(!u)return res.status(404).json({error:'User not found'});res.json(publicUser(u));});
 app.patch('/api/profile',auth,asyncRoute(async(req,res)=>{const db=load();const u=db.users.find(x=>x.id===req.user.id);if(!u)return res.status(404).json({error:'User not found'});for(const k of ['name','bio','skills','avatar'])if(req.body[k]!==undefined)u[k]=req.body[k];await save(db);res.json(publicUser(u));}));
-app.post('/api/messages',auth,asyncRoute(async(req,res)=>{const {toUserId,body}=req.body||{};if(!toUserId||typeof body!=='string'||!body.trim())return res.status(400).json({error:'Recipient and message are required'});const risk=riskText(body);const db=load();const message={id:crypto.randomUUID(),fromUserId:req.user.id,toUserId,body:body.trim(),imageUrl:'',createdAt:new Date().toISOString(),sentAt:new Date().toISOString(),deliveredAt:null,readAt:null,risk};if(risk.level==='critical'||risk.level==='high'){db.moderationActions.push({id:crypto.randomUUID(),type:'message_blocked',userId:req.user.id,reason:risk.flags,createdAt:new Date().toISOString()});await save(db);return res.status(422).json({error:'Message blocked by ZERA Trust & Safety',risk});}db.messages.push(message);await save(db);io.to(toUserId).emit('message:new',message);await notifyUser(toUserId,'message','New message',`${publicUser(db.users.find(item=>item.id===req.user.id)||{id:req.user.id,name:'Developer',username:'developer',createdAt:message.createdAt}).name} sent you a message.`,{url:`/messages?user=${encodeURIComponent(req.user.id)}`,fromUserId:req.user.id});res.status(201).json(message);}));
+app.post('/api/messages',auth,asyncRoute(async(req,res)=>{const idempotency=messageRequestKey(req,res);if(!idempotency)return;if(idempotency.existing)return res.json(idempotency.existing);const {toUserId,body}=req.body||{};if(!toUserId||typeof body!=='string'||!body.trim())return res.status(400).json({error:'Recipient and message are required'});const risk=riskText(body);const db=load();const message={id:crypto.randomUUID(),fromUserId:req.user.id,toUserId,body:body.trim(),imageUrl:'',createdAt:new Date().toISOString(),sentAt:new Date().toISOString(),deliveredAt:null,readAt:null,risk,...(idempotency.key?{clientRequestId:idempotency.key}:{})};if(risk.level==='critical'||risk.level==='high'){db.moderationActions.push({id:crypto.randomUUID(),type:'message_blocked',userId:req.user.id,reason:risk.flags,createdAt:new Date().toISOString()});await save(db);return res.status(422).json({error:'Message blocked by ZERA Trust & Safety',risk});}db.messages.push(message);await save(db);io.to(toUserId).emit('message:new',message);const sender=db.users.find(item=>item.id===req.user.id);const senderName=sender?.name||'A ZERA HUB member';await notifyUser(toUserId,'message',`New message from ${senderName}`,message.body.replace(/\s+/g,' ').slice(0,120),{url:`/messages?user=${encodeURIComponent(req.user.id)}&message=${encodeURIComponent(message.id)}`,fromUserId:req.user.id,messageId:message.id});res.status(201).json(message);}));
 app.get('/api/messages/:userId',auth,asyncRoute(async(req,res)=>{const db=load();const now=new Date().toISOString();const messages=db.messages.filter(message=>(message.fromUserId===req.user.id&&message.toUserId===req.params.userId)||(message.toUserId===req.user.id&&message.fromUserId===req.params.userId));const delivered=messages.filter(message=>message.toUserId===req.user.id&&!message.deliveredAt);for(const message of delivered)message.deliveredAt=now;if(delivered.length)await save(db);res.json(messages);}));
 app.patch('/api/messages/:userId/read',auth,asyncRoute(async(req,res)=>{const db=load();const readAt=new Date().toISOString();const messages=db.messages.filter(message=>message.fromUserId===req.params.userId&&message.toUserId===req.user.id&&!message.readAt);const messageIds=messages.map(message=>message.id);if(messageIds.length){messages.forEach(message=>{message.readAt=readAt});await save(db);io.to(req.params.userId).emit('message:read',{readerId:req.user.id,messageIds,readAt});}res.json({messageIds,readAt});}));
 app.post('/api/posts',auth,asyncRoute(async(req,res)=>{const {content}=req.body||{};if(!content?.trim())return res.status(400).json({error:'Post content is required'});const risk=riskText(content);const db=load();if(risk.level==='critical'||risk.level==='high'){db.moderationActions.push({id:crypto.randomUUID(),type:'post_blocked',userId:req.user.id,reason:risk.flags,createdAt:new Date().toISOString()});await save(db);return res.status(422).json({error:'Post blocked by ZERA Trust & Safety',risk});}const post={id:crypto.randomUUID(),userId:req.user.id,content:content.trim(),createdAt:new Date().toISOString()};db.posts.unshift(post);await save(db);res.status(201).json(post);}));
@@ -268,13 +388,23 @@ app.post('/api/reports',auth,asyncRoute(async(req,res)=>{const {targetType,targe
 const upload=multer({storage:multer.diskStorage({destination:uploadDir,filename:(req,file,cb)=>cb(null,`${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g,'_')}`)}),limits:{fileSize:2*1024*1024},fileFilter:(req,file,cb)=>cb(null,['image/jpeg','image/png','image/gif','image/webp','image/avif'].includes(file.mimetype))});
 const imageExtensions={'image/jpeg':'.jpg','image/png':'.png','image/gif':'.gif','image/webp':'.webp','image/avif':'.avif'};
 const communityUpload=multer({storage:multer.diskStorage({destination:uploadDir,filename:(req,file,cb)=>cb(null,`${Date.now()}-${crypto.randomUUID()}${imageExtensions[file.mimetype]||'.img'}`)}),limits:{fileSize:2*1024*1024},fileFilter:(req,file,cb)=>cb(null,Boolean(imageExtensions[file.mimetype]))});
-const audioExtensions={'audio/webm':'.webm','audio/ogg':'.ogg','audio/mp4':'.m4a','audio/mpeg':'.mp3','audio/wav':'.wav','audio/x-wav':'.wav','audio/aac':'.aac','audio/3gpp':'.3gp'};
+const audioExtensions={'audio/webm':'.webm','audio/ogg':'.ogg','audio/mp4':'.m4a','audio/m4a':'.m4a','audio/x-m4a':'.m4a','audio/mpeg':'.mp3','audio/wav':'.wav','audio/x-wav':'.wav','audio/aac':'.aac','audio/3gpp':'.3gp'};
 const voiceUpload=multer({storage:multer.diskStorage({destination:uploadDir,filename:(req,file,cb)=>cb(null,`${Date.now()}-${crypto.randomUUID()}${audioExtensions[file.mimetype.split(';')[0]]||'.audio'}`)}),limits:{fileSize:12*1024*1024},fileFilter:(req,file,cb)=>cb(null,Boolean(audioExtensions[file.mimetype.split(';')[0]]))});
+function messageRequestKey(req,res){
+  const key=req.get('Idempotency-Key');
+  if(key===undefined)return {key:null,existing:null};
+  if(!/^[a-zA-Z0-9:_-]{1,128}$/.test(key)){
+    res.status(400).json({error:'Idempotency-Key must contain 1 to 128 letters, numbers, colons, underscores, or hyphens'});
+    return null;
+  }
+  const existing=load().messages.find(message=>message.fromUserId===req.user.id&&message.clientRequestId===key);
+  return {key,existing};
+}
 function validImageSignature(file){const bytes=fs.readFileSync(file.path);if(file.mimetype==='image/jpeg')return bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff;if(file.mimetype==='image/png')return bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]));if(file.mimetype==='image/gif')return bytes.subarray(0,6).toString('ascii').startsWith('GIF8');if(file.mimetype==='image/webp')return bytes.subarray(0,4).toString('ascii')==='RIFF'&&bytes.subarray(8,12).toString('ascii')==='WEBP';if(file.mimetype==='image/avif')return bytes.subarray(4,12).toString('ascii').includes('ftyp')&&/avif|avis|mif1/.test(bytes.subarray(8,16).toString('ascii'));return false;}
 app.post('/api/profile/avatar',auth,communityUpload.single('avatar'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'A valid image file is required'});if(!validImageSignature(req.file)){fs.unlinkSync(req.file.path);return res.status(415).json({error:'The uploaded file is not a supported image'});}const db=load();const user=db.users.find(item=>item.id===req.user.id);if(!user){fs.unlinkSync(req.file.path);return res.status(404).json({error:'User not found'});}user.avatar=`/uploads/${req.file.filename}`;await save(db);res.json(publicUser(user));}));
 app.post('/api/profile/chat-wallpaper',auth,communityUpload.single('image'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'A valid image file is required'});if(!validImageSignature(req.file)){fs.unlinkSync(req.file.path);return res.status(415).json({error:'The uploaded file is not a supported image'});}const db=load();const user=db.users.find(item=>item.id===req.user.id);if(!user){fs.unlinkSync(req.file.path);return res.status(404).json({error:'User not found'});}user.preferences||={};user.preferences.chatWallpaper='custom';user.preferences.chatWallpaperImage=`/uploads/${req.file.filename}`;await save(db);res.status(201).json({chatWallpaper:'custom',chatWallpaperImage:user.preferences.chatWallpaperImage});}));
-app.post('/api/messages/:userId/image',auth,communityUpload.single('image'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'A valid image file is required'});if(!validImageSignature(req.file)){fs.unlinkSync(req.file.path);return res.status(415).json({error:'The uploaded file is not a supported image'});}const db=load();const recipient=db.users.find(item=>item.id===req.params.userId&&item.status==='active');if(!recipient){fs.unlinkSync(req.file.path);return res.status(404).json({error:'Recipient not found'});}const message={id:crypto.randomUUID(),fromUserId:req.user.id,toUserId:req.params.userId,body:'',imageUrl:`/uploads/${req.file.filename}`,createdAt:new Date().toISOString(),sentAt:new Date().toISOString(),deliveredAt:null,readAt:null};db.messages.push(message);await save(db);io.to(req.params.userId).emit('message:new',message);await notifyUser(req.params.userId,'message','New image message','You received an image message.',{url:`/messages?user=${encodeURIComponent(req.user.id)}`,fromUserId:req.user.id});res.status(201).json(message);}));
-app.post('/api/messages/:userId/voice',auth,voiceUpload.single('voice'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'A supported voice recording is required'});const durationSeconds=Number(req.body?.durationSeconds);if(!Number.isFinite(durationSeconds)||durationSeconds<=0||durationSeconds>180){fs.unlinkSync(req.file.path);return res.status(400).json({error:'Voice messages must be between 1 and 180 seconds'});}const db=load();const recipient=db.users.find(item=>item.id===req.params.userId&&item.status==='active');if(!recipient){fs.unlinkSync(req.file.path);return res.status(404).json({error:'Recipient not found'});}const message={id:crypto.randomUUID(),fromUserId:req.user.id,toUserId:req.params.userId,body:'',imageUrl:'',voiceUrl:`/uploads/${req.file.filename}`,durationSeconds,createdAt:new Date().toISOString(),sentAt:new Date().toISOString(),deliveredAt:null,readAt:null};db.messages.push(message);await save(db);io.to(req.params.userId).emit('message:new',message);await notifyUser(req.params.userId,'message','New voice message','You received a voice message.',{url:`/messages?user=${encodeURIComponent(req.user.id)}`,fromUserId:req.user.id});res.status(201).json(message);}));
+app.post('/api/messages/:userId/image',auth,communityUpload.single('image'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'A valid image file is required'});if(!validImageSignature(req.file)){fs.unlinkSync(req.file.path);return res.status(415).json({error:'The uploaded file is not a supported image'});}const idempotency=messageRequestKey(req,res);if(!idempotency){fs.unlinkSync(req.file.path);return;}if(idempotency.existing){fs.unlinkSync(req.file.path);return res.json(idempotency.existing);}const db=load();const recipient=db.users.find(item=>item.id===req.params.userId&&item.status==='active');if(!recipient){fs.unlinkSync(req.file.path);return res.status(404).json({error:'Recipient not found'});}const message={id:crypto.randomUUID(),fromUserId:req.user.id,toUserId:req.params.userId,body:'',imageUrl:`/uploads/${req.file.filename}`,createdAt:new Date().toISOString(),sentAt:new Date().toISOString(),deliveredAt:null,readAt:null,...(idempotency.key?{clientRequestId:idempotency.key}:{})};db.messages.push(message);await save(db);io.to(req.params.userId).emit('message:new',message);const senderName=db.users.find(item=>item.id===req.user.id)?.name||'A ZERA HUB member';await notifyUser(req.params.userId,'message',`New message from ${senderName}`,'Sent you an image.',{url:`/messages?user=${encodeURIComponent(req.user.id)}&message=${encodeURIComponent(message.id)}`,fromUserId:req.user.id,messageId:message.id});res.status(201).json(message);}));
+app.post('/api/messages/:userId/voice',auth,voiceUpload.single('voice'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'A supported voice recording is required'});const idempotency=messageRequestKey(req,res);if(!idempotency){fs.unlinkSync(req.file.path);return;}if(idempotency.existing){fs.unlinkSync(req.file.path);return res.json(idempotency.existing);}const durationSeconds=Number(req.body?.durationSeconds);if(!Number.isFinite(durationSeconds)||durationSeconds<=0||durationSeconds>180){fs.unlinkSync(req.file.path);return res.status(400).json({error:'Voice messages must be between 1 and 180 seconds'});}const db=load();const recipient=db.users.find(item=>item.id===req.params.userId&&item.status==='active');if(!recipient){fs.unlinkSync(req.file.path);return res.status(404).json({error:'Recipient not found'});}const contentType=audioExtensions[req.file.mimetype.split(';')[0]]?req.file.mimetype.split(';')[0]:'application/octet-stream';const message={id:crypto.randomUUID(),fromUserId:req.user.id,toUserId:req.params.userId,body:'',imageUrl:'',voiceUrl:`/uploads/${req.file.filename}`,voiceMimeType:contentType,durationSeconds,createdAt:new Date().toISOString(),sentAt:new Date().toISOString(),deliveredAt:null,readAt:null,...(idempotency.key?{clientRequestId:idempotency.key}:{})};db.messages.push(message);await save(db);io.to(req.params.userId).emit('message:new',message);const senderName=db.users.find(item=>item.id===req.user.id)?.name||'A ZERA HUB member';await notifyUser(req.params.userId,'message',`New message from ${senderName}`,'Sent you a voice message.',{url:`/messages?user=${encodeURIComponent(req.user.id)}&message=${encodeURIComponent(message.id)}`,fromUserId:req.user.id,messageId:message.id});res.status(201).json(message);}));
 app.use('/api/community',createCommunityRouter({auth,load,save,publicUser,upload:communityUpload,riskText}));
 app.post('/api/admin/login',asyncRoute(async(req,res)=>{const {email,password}=req.body||{};const attemptedEmail=String(email||'').slice(0,254);const adminEmail=attemptedEmail.toLowerCase();if(!process.env.ADMIN_EMAIL||!process.env.ADMIN_PASSWORD)return res.status(503).json({error:'Admin credentials are not configured on the server'});const db=load();db.adminLoginActivity||=[];if(adminEmail!==process.env.ADMIN_EMAIL.toLowerCase()||password!==process.env.ADMIN_PASSWORD){db.adminLoginActivity.push({id:crypto.randomUUID(),attemptedEmail,success:false,createdAt:new Date().toISOString()});if(db.adminLoginActivity.length>200)db.adminLoginActivity.shift();await save(db);return res.status(401).json({error:'Invalid admin credentials'});}db.adminLoginActivity.push({id:crypto.randomUUID(),adminEmail:process.env.ADMIN_EMAIL,success:true,createdAt:new Date().toISOString()});if(db.adminLoginActivity.length>200)db.adminLoginActivity.shift();await save(db);const user={id:'admin',role:'admin',email:process.env.ADMIN_EMAIL};res.json({token:tokenFor(user),user:{id:'admin',email:process.env.ADMIN_EMAIL,role:'admin'}});}));
 app.get('/api/admin/overview',admin,(req,res)=>res.json(adminOverview(load())));
@@ -343,6 +473,14 @@ async function startServer(){
         await mongoStateCollection.insertOne({...memoryState,_id:'primary'});
       }
     }
+    let migratedAccountTypes=false;
+    for(const user of load().users){
+      if(user.accountType!=='developer'&&user.accountType!=='hire'){
+        user.accountType='developer';
+        migratedAccountTypes=true;
+      }
+    }
+    if(migratedAccountTypes)await save(load());
     httpServer.listen(PORT,()=>console.log(`ZERA HUB API running on http://localhost:${PORT}`));
   }catch(error){
     console.error('Backend startup error:',error.message);

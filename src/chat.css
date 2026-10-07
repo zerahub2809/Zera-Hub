@@ -1,0 +1,8 @@
+.chat-message-bubble footer time {
+  color: #c6cedd;
+  font-weight: 600;
+}
+
+html[data-theme="light"] .chat-message-bubble footer time {
+  color: #586579;
+}

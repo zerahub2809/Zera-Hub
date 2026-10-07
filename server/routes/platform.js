@@ -203,6 +203,13 @@ function jobInput(body, current = {}) {
 export function createPlatformRouter({ auth, load, save, publicUser, notifyUser }) {
   const router = express.Router();
   const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+  const requireAccountType = (accountType) => (req, res, next) => {
+    const actualType = req.user.accountType || 'developer';
+    if (actualType !== accountType) {
+      return res.status(403).json({ error: `${accountType === 'hire' ? 'Hirer' : 'Developer'} account access required` });
+    }
+    next();
+  };
 
   router.get('/developers', (req, res) => {
     const db = load();
@@ -237,13 +244,13 @@ export function createPlatformRouter({ auth, load, save, publicUser, notifyUser 
     res.json(safePublicUser(user, publicUser));
   });
 
-  router.get('/profile', auth, (req, res) => {
+  router.get('/profile', auth, requireAccountType('developer'), (req, res) => {
     const user = load().users.find((item) => item.id === req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json({ ...safePublicUser(user, publicUser), verificationRequestAt: user.verificationRequestAt || null, profile: user.profile || {} });
   });
 
-  router.patch('/profile', auth, asyncRoute(async (req, res) => {
+  router.patch('/profile', auth, requireAccountType('developer'), asyncRoute(async (req, res) => {
     const db = load();
     const user = db.users.find((item) => item.id === req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -334,7 +341,7 @@ export function createPlatformRouter({ auth, load, save, publicUser, notifyUser 
     });
   });
 
-  router.post('/profile/verification-request', auth, asyncRoute(async (req, res) => {
+  router.post('/profile/verification-request', auth, requireAccountType('developer'), asyncRoute(async (req, res) => {
     const db = load();
     const user = db.users.find((item) => item.id === req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -468,14 +475,14 @@ export function createPlatformRouter({ auth, load, save, publicUser, notifyUser 
     res.json(jobs.map((job) => toPublicJob(job, db, publicUser)));
   });
 
-  router.get('/jobs/mine', auth, (req, res) => {
+  router.get('/jobs/mine', auth, requireAccountType('hire'), (req, res) => {
     const db = load();
     res.json((db.jobs || []).filter((job) => job.ownerId === req.user.id)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map((job) => toPublicJob(job, db, publicUser)));
   });
 
-  router.post('/jobs', auth, asyncRoute(async (req, res) => {
+  router.post('/jobs', auth, requireAccountType('hire'), asyncRoute(async (req, res) => {
     const parsed = jobInput(req.body || {});
     if (parsed.error) return res.status(400).json({ error: parsed.error });
     const job = parsed.job;
@@ -508,7 +515,7 @@ export function createPlatformRouter({ auth, load, save, publicUser, notifyUser 
     res.json(toPublicJob(job, db, publicUser));
   });
 
-  router.patch('/jobs/:id', auth, asyncRoute(async (req, res) => {
+  router.patch('/jobs/:id', auth, requireAccountType('hire'), asyncRoute(async (req, res) => {
     const db = load();
     const job = (db.jobs || []).find((item) => item.id === req.params.id);
     if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -530,7 +537,7 @@ export function createPlatformRouter({ auth, load, save, publicUser, notifyUser 
     res.json(toPublicJob(job, db, publicUser));
   }));
 
-  router.post('/jobs/:id/applications', auth, asyncRoute(async (req, res) => {
+  router.post('/jobs/:id/applications', auth, requireAccountType('developer'), asyncRoute(async (req, res) => {
     const db = load();
     ensurePlatformCollections(db);
     const job = db.jobs.find((item) => item.id === req.params.id && item.status === 'open');
@@ -555,7 +562,7 @@ export function createPlatformRouter({ auth, load, save, publicUser, notifyUser 
     res.status(201).json({ ...application, job: toPublicJob(job, db, publicUser) });
   }));
 
-  router.get('/applications/mine', auth, (req, res) => {
+  router.get('/applications/mine', auth, requireAccountType('developer'), (req, res) => {
     const db = load();
     res.json((db.applications || []).filter((application) => application.applicantId === req.user.id)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -568,7 +575,7 @@ export function createPlatformRouter({ auth, load, save, publicUser, notifyUser 
       })));
   });
 
-  router.get('/jobs/:id/applications', auth, (req, res) => {
+  router.get('/jobs/:id/applications', auth, requireAccountType('hire'), (req, res) => {
     const db = load();
     const job = (db.jobs || []).find((item) => item.id === req.params.id);
     if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -581,7 +588,7 @@ export function createPlatformRouter({ auth, load, save, publicUser, notifyUser 
       }));
   });
 
-  router.patch('/applications/:id', auth, asyncRoute(async (req, res) => {
+  router.patch('/applications/:id', auth, requireAccountType('hire'), asyncRoute(async (req, res) => {
     const db = load();
     const application = (db.applications || []).find((item) => item.id === req.params.id);
     if (!application) return res.status(404).json({ error: 'Application not found' });

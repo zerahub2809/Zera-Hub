@@ -1,7 +1,7 @@
 import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {AnimatePresence,motion,useReducedMotion} from 'framer-motion';
-import {BrowserRouter,Routes,Route,Link,NavLink,useNavigate,useLocation} from 'react-router-dom';
+import { BrowserRouter,Routes,Route,Link,NavLink,useNavigate,useLocation,Navigate } from 'react-router-dom';
 import {io, type Socket} from 'socket.io-client';
 import {ArrowRight,ArrowUpRight,BrainCircuit,BriefcaseBusiness,Code2,Compass,FileCode2,FolderKanban,Globe2,Home as HomeIcon,Layers3,Mail,Menu,MessageCircle,Network,Plus,Search,Send,ShieldCheck,Sparkles,Terminal,Users,Workflow,X,Instagram,Facebook,Twitter,Settings,LogOut,UserRound,AtSign,Lock,CheckCircle2,AlertTriangle,Upload,BarChart3,Ban,RefreshCw,Bell,ImagePlus,Check,Sun,Moon,ChevronLeft,Mic} from 'lucide-react';
 import './index.css';
@@ -11,15 +11,18 @@ import { DeveloperDirectory, Marketplace, ProfileEditor } from './Platform';
 import { CommunityHub } from './Community';
 import { ZeraAIWorkspace } from './ZeraAI';
 import { BrandMark } from './BrandMark';
+import { AuthModalEnhanced } from './AuthModalEnhanced';
+import { PasswordResetPage } from './PasswordReset';
 import './responsive.css';
 import './theme.css';
+import './chat.css';
 
 const API=import.meta.env.VITE_API_URL||(import.meta.env.PROD?'https://zera-hub-api.onrender.com':'http://localhost:4000');
 const social={facebook:'https://www.facebook.com/share/1BDT7JfvXm/',instagram:'https://www.instagram.com/zerahub2026/',x:'https://x.com/zerahub2809'};
 function setPageMetadata(title:string,description:string){document.title=`${title} · ZERA HUB`;let meta=document.querySelector<HTMLMetaElement>('meta[name="description"]');if(!meta){meta=document.createElement('meta');meta.name='description';document.head.append(meta);}meta.content=description;}
 
 type User={id:string;name:string;username:string;role:string;accountType:string;bio?:string;skills?:string[];avatar?:string;status:string;verified?:boolean;online?:boolean;lastSeenAt?:string|null};
-type ChatMessage={id:string;fromUserId:string;toUserId:string;body:string;imageUrl?:string;voiceUrl?:string;durationSeconds?:number;createdAt:string;sentAt?:string;deliveredAt?:string|null;readAt?:string|null};
+type ChatMessage={id:string;fromUserId:string;toUserId:string;body:string;imageUrl?:string;voiceUrl?:string;voiceMimeType?:string;durationSeconds?:number;createdAt:string;sentAt?:string;deliveredAt?:string|null;readAt?:string|null};
 type ChatPresenceStatus='typing'|'recording'|null;
 type ChatStatusEvent={fromUserId:string;status:ChatPresenceStatus};
 type MessageReadEvent={readerId:string;messageIds:string[];readAt:string};
@@ -31,7 +34,7 @@ type Theme='light'|'dark';
 function applyTheme(theme:Theme){document.documentElement.dataset.theme=theme;document.body.dataset.theme=theme;localStorage.setItem('zera_theme',theme);const meta=document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');if(meta)meta.content=theme==='light'?'#F7F7F5':'#111315'}
 const nav=[['/','Home'],['/about','About'],['/developers','Developers'],['/services','Services'],['/projects','Projects'],['/community','Community'],['/ai','ZERA AI'],['/collaborate','Collaborate'],['/jobs','Jobs'],['/contact','Contact']];
 const api=async(path:string,options:RequestInit={})=>{const token=localStorage.getItem('zera_token');const headers=new Headers(options.headers);headers.set('Content-Type','application/json');if(token)headers.set('Authorization',`Bearer ${token}`);const r=await fetch(`${API}${path}`,{...options,headers});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||'Request failed');return data;};
-function apiUpload<T>(path:string,formData:FormData):Promise<T>{const headers=new Headers();const token=localStorage.getItem('zera_token');if(token)headers.set('Authorization',`Bearer ${token}`);return fetch(`${API}${path}`,{method:'POST',headers,body:formData}).then(async response=>{const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Upload failed');return data as T})}
+function apiUpload<T>(path:string,formData:FormData,idempotencyKey?:string):Promise<T>{const headers=new Headers();const token=localStorage.getItem('zera_token');if(token)headers.set('Authorization',`Bearer ${token}`);if(idempotencyKey)headers.set('Idempotency-Key',idempotencyKey);return fetch(`${API}${path}`,{method:'POST',headers,body:formData}).then(async response=>{const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Upload failed');return data as T})}
 function apiTyped<T>(path:string,options:RequestInit={}):Promise<T>{return api(path,options).then((data:unknown)=>data as T)}
 function decodeVapidKey(value:string){const padding='='.repeat((4-value.length%4)%4);const raw=atob((value+padding).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(raw,char=>char.charCodeAt(0))}
 function UserAvatar({user,className=''}:{user:User;className?:string}){return <span className={`inner-avatar ${className}`}>{user.avatar?<img src={user.avatar.startsWith('http')?user.avatar:`${API}${user.avatar}`} alt=""/>:user.name?.slice(0,1).toUpperCase()}<i className={user.online?'online':'offline'}/></span>}
@@ -39,17 +42,17 @@ function VerificationBadge(){return <span className="verification-badge" title="
 function formatLastSeen(user:User){if(user.online)return 'Online';if(!user.lastSeenAt)return 'Offline';const elapsed=Date.now()-Date.parse(user.lastSeenAt);if(elapsed<3600000)return `Last seen ${Math.max(1,Math.floor(elapsed/60000))}m ago`;if(elapsed<86400000)return `Last seen ${Math.floor(elapsed/3600000)}h ago`;return `Last seen ${new Date(user.lastSeenAt).toLocaleDateString()}`}
 function voiceUrl(url:string){return url.startsWith('http')?url:`${API}${url}`}
 function formatDuration(seconds:number){const safe=Math.max(0,Math.floor(seconds));return `${Math.floor(safe/60)}:${String(safe%60).padStart(2,'0')}`}
-function VoiceMessage({url,durationSeconds}:{url:string;durationSeconds?:number}){return <div className="chat-voice-message"><audio controls preload="metadata" src={voiceUrl(url)} aria-label="Voice message"/>{durationSeconds!==undefined&&<span>{formatDuration(durationSeconds)}</span>}</div>}
+function VoiceMessage({url,mimeType,durationSeconds}:{url:string;mimeType?:string;durationSeconds?:number}){return <div className="chat-voice-message"><audio controls preload="metadata" aria-label="Voice message"><source src={voiceUrl(url)} type={mimeType}/></audio>{durationSeconds!==undefined&&<span>{formatDuration(durationSeconds)}</span>}</div>}
 function PresenceHeartbeat(){useEffect(()=>{const heartbeat=()=>{if(localStorage.getItem('zera_token'))api('/api/presence',{method:'POST'}).catch(error=>console.error('Could not update account presence:',error))};heartbeat();const timer=window.setInterval(heartbeat,45000);return()=>window.clearInterval(timer)},[]);return null}
 function NotificationSoundMonitor({user}:{user:User|null}){
   const audioContextRef=useRef<AudioContext|null>(null);
   const soundEnabledRef=useRef(localStorage.getItem('zera_notification_sound')==='on');
-  const knownNotifications=useRef(new Set<string>());
 
   useEffect(()=>{
     if(!user)return;
     let active=true;
     let initialized=false;
+    const knownNotifications=new Set<string>();
     const syncSoundPreference=()=>{
       soundEnabledRef.current=localStorage.getItem('zera_notification_sound')==='on';
       if(!soundEnabledRef.current||!('AudioContext'in window))return;
@@ -76,23 +79,28 @@ function NotificationSoundMonitor({user}:{user:User|null}){
       if(context.state==='running')play();
       else void context.resume().then(()=>{if(soundEnabledRef.current)play()}).catch(error=>console.error('Could not play notification sound:',error));
     };
+    const receiveNotification=(item:PlatformNotification)=>{
+      if(!active||knownNotifications.has(item.id))return;
+      knownNotifications.add(item.id);
+      if(document.hidden&&typeof Notification!=='undefined'&&Notification.permission==='granted')new Notification(item.title,{body:item.body,icon:'/favicon.ico'});
+      window.dispatchEvent(new CustomEvent('zera-notification-received',{detail:item}));
+      playSound();
+    };
     const refresh=()=>apiTyped<PlatformNotification[]>('/api/notifications').then(items=>{
       if(!active)return;
       if(!initialized){
-        knownNotifications.current=new Set(items.map(item=>item.id));
+        items.forEach(item=>knownNotifications.add(item.id));
         initialized=true;
         return;
       }
-      const received=items.filter(item=>!knownNotifications.current.has(item.id));
-      items.forEach(item=>knownNotifications.current.add(item.id));
-      received.forEach(item=>{
-        if(document.hidden&&typeof Notification!=='undefined'&&Notification.permission==='granted')new Notification(item.title,{body:item.body,icon:'/favicon.ico'});
-        playSound();
-      });
+      items.forEach(receiveNotification);
     }).catch(error=>console.error('Could not check incoming notifications:',error));
+    const socket=io(API,{auth:{token:localStorage.getItem('zera_token')||''}});
+    socket.on('notification:new',receiveNotification);
+    socket.on('connect_error',error=>console.error('Could not connect to notification updates:',error));
     const timer=window.setInterval(refresh,12000);
-    window.addEventListener('pointerdown',syncSoundPreference);
-    window.addEventListener('keydown',syncSoundPreference);
+    window.addEventListener('pointerdown',syncSoundPreference,true);
+    window.addEventListener('keydown',syncSoundPreference,true);
     window.addEventListener('storage',syncSoundPreference);
     window.addEventListener('zera-notification-sound-change',syncSoundPreference);
     syncSoundPreference();
@@ -100,15 +108,15 @@ function NotificationSoundMonitor({user}:{user:User|null}){
     return()=>{
       active=false;
       window.clearInterval(timer);
-      window.removeEventListener('pointerdown',syncSoundPreference);
-      window.removeEventListener('keydown',syncSoundPreference);
+      socket.off('notification:new',receiveNotification);
+      socket.disconnect();
+      window.removeEventListener('pointerdown',syncSoundPreference,true);
+      window.removeEventListener('keydown',syncSoundPreference,true);
       window.removeEventListener('storage',syncSoundPreference);
       window.removeEventListener('zera-notification-sound-change',syncSoundPreference);
       if(audioContextRef.current){void audioContextRef.current.close().catch(error=>console.error('Could not close notification audio:',error));audioContextRef.current=null}
     };
   },[user?.id]);
-
-  useEffect(()=>()=>{if(audioContextRef.current){void audioContextRef.current.close().catch(error=>console.error('Could not close notification audio:',error));audioContextRef.current=null}},[]);
   return null;
 }
 
@@ -178,12 +186,13 @@ function App(){
       <Route path="/app" element={<AppHome user={user}/>}/>
       <Route path="/messages" element={<Messages user={user}/>}/>
       <Route path="/notifications" element={<NotificationsPage user={user}/>}/>
-      <Route path="/profile/*" element={<ProfileEditor user={user} onAuth={setAuth} onUserUpdated={updated=>setUser(current=>current?{...current,...updated}:current)}/>}/>
+      <Route path="/reset-password" element={<PasswordResetPage/>}/>
+      <Route path="/profile/*" element={user?.accountType==='hire'?<Navigate to="/app" replace/>:<ProfileEditor user={user} onAuth={setAuth} onUserUpdated={updated=>setUser(current=>current?{...current,...updated}:current)}/>}/>
       <Route path="/admindev2809" element={<AdminControlCenter/>}/>
       <Route path="*" element={<NotFound/>}/>
     </Routes>
     {!isAdminRoute&&!isMessagesRoute&&!isAIPage&&<Footer site={site}/>}
-    <AnimatePresence>{auth&&<AuthModal type={auth} site={site} onClose={()=>setAuth(null)} onSignedIn={account=>{setUser(account);setAuth(null);window.dispatchEvent(new Event('zera-authenticated'))}}/>}</AnimatePresence>
+    <AnimatePresence>{auth&&<AuthModalEnhanced type={auth} site={site} onClose={()=>setAuth(null)} onSignedIn={account=>{setUser(account);setAuth(null);window.dispatchEvent(new Event('zera-authenticated'))}}/>}</AnimatePresence>
     {ai&&<ZeraAIWorkspace user={user} site={site} onAuth={setAuth} isModal initialPrompt={aiPrompt} initialContext={aiContext} onClose={()=>{setAI(false);setAIPrompt('');setAIContext('')}}/>}
   </>;
 }
@@ -367,10 +376,10 @@ function NotificationsPage({user}:{user:User|null}){
   const [items,setItems]=useState<PlatformNotification[]>([]);
   const [error,setError]=useState('');
   const navigate=useNavigate();
-  useEffect(()=>{if(!user)return;let active=true;const refresh=()=>apiTyped<PlatformNotification[]>('/api/notifications').then(next=>{if(active)setItems(next)}).catch(reason=>{if(active)setError(reason instanceof Error?reason.message:'Could not load notifications.')});refresh();const timer=window.setInterval(refresh,12000);return()=>{active=false;window.clearInterval(timer)}},[user]);
+  useEffect(()=>{if(!user)return;let active=true;const refresh=()=>apiTyped<PlatformNotification[]>('/api/notifications').then(next=>{if(active)setItems(next)}).catch(reason=>{if(active)setError(reason instanceof Error?reason.message:'Could not load notifications.')});const onIncoming=(event:Event)=>{const item=(event as CustomEvent<PlatformNotification>).detail;if(!item)return;setItems(current=>current.some(existing=>existing.id===item.id)?current:[item,...current].slice(0,100))};refresh();const timer=window.setInterval(refresh,12000);window.addEventListener('zera-notification-received',onIncoming);return()=>{active=false;window.clearInterval(timer);window.removeEventListener('zera-notification-received',onIncoming)}},[user]);
   const openNotification=async(item:PlatformNotification)=>{
     if(!item.readAt){
-      try{await api('/api/notifications/read',{method:'PATCH',body:'{}'});setItems(current=>current.map(notification=>({...notification,readAt:notification.readAt||new Date().toISOString()})))}
+      try{await api('/api/notifications/read',{method:'PATCH',body:JSON.stringify({notificationId:item.id})});setItems(current=>current.map(notification=>notification.id===item.id?{...notification,readAt:new Date().toISOString()}:notification))}
       catch(reason){setError(reason instanceof Error?reason.message:'Could not update notifications.')}
     }
     const target=item.data?.url;
@@ -402,14 +411,19 @@ function Messages({user}:{user:User|null}){
   const [voiceDraftUrl,setVoiceDraftUrl]=useState('');
   const [voiceDraftDuration,setVoiceDraftDuration]=useState(0);
   const [recording,setRecording]=useState(false);
+  const [sending,setSending]=useState(false);
   const [recordingSeconds,setRecordingSeconds]=useState(0);
   const [recordingError,setRecordingError]=useState('');
   const [remoteStatus,setRemoteStatus]=useState<ChatPresenceStatus>(null);
   const imageRef=useRef<HTMLInputElement>(null);
   const wallpaperRef=useRef<HTMLInputElement>(null);
   const messagesRef=useRef<HTMLDivElement>(null);
+  const messageElements=useRef<Record<string,HTMLDivElement|null>>({});
+  const targetMessageId=useRef<string|null>(null);
   const socketRef=useRef<Socket|null>(null);
   const selectedRef=useRef<User|null>(selected);
+  const sendingRef=useRef(false);
+  const pendingSendKeyRef=useRef<string|null>(null);
   const recorderRef=useRef<MediaRecorder|null>(null);
   const streamRef=useRef<MediaStream|null>(null);
   const chunksRef=useRef<Blob[]>([]);
@@ -420,7 +434,7 @@ function Messages({user}:{user:User|null}){
   const navigate=useNavigate();
   selectedRef.current=selected;
   const refreshConnections=()=>api('/api/platform/connections').then((result:ConnectionListResponse)=>{const accepted=result.connections.filter(entry=>entry.status==='accepted').map(entry=>entry.user).filter(account=>account.id!==user?.id);setUsers(accepted);setSelected(current=>current?accepted.find(account=>account.id===current.id)||current:current)});
-  useEffect(()=>{if(!user)return;let alive=true;Promise.all([api('/api/platform/connections'),api('/api/notifications'),api('/api/platform/profile/preferences')]).then(([connectionResult,items,prefs]:[ConnectionListResponse,PlatformNotification[],ChatPreferencesResponse])=>{if(!alive)return;setUsers(connectionResult.connections.filter(entry=>entry.status==='accepted').map(entry=>entry.user).filter(account=>account.id!==user.id));setNotifications(items);setWallpaper(prefs.chatWallpaper||'dark-grid');setWallpaperImage(prefs.chatWallpaperImage||'');if(typeof prefs.notificationSound==='boolean'){setSoundOn(prefs.notificationSound);localStorage.setItem('zera_notification_sound',prefs.notificationSound?'on':'off');window.dispatchEvent(new Event('zera-notification-sound-change'))}const queryUser=new URLSearchParams(window.location.search).get('user');if(queryUser){const target=connectionResult.connections.find(entry=>entry.status==='accepted'&&entry.user.id===queryUser)?.user;if(target)setSelected(target)}}).catch((error:Error)=>setLoadError(error.message));const presence=()=>api('/api/presence',{method:'POST'}).catch(error=>console.error('Could not update account presence:',error));presence();const connectionsTimer=window.setInterval(()=>{refreshConnections().catch(error=>console.error('Could not refresh connected users:',error))},30000);const presenceTimer=window.setInterval(presence,45000);return()=>{alive=false;window.clearInterval(connectionsTimer);window.clearInterval(presenceTimer)}},[user]);
+  useEffect(()=>{if(!user)return;let alive=true;Promise.all([api('/api/platform/connections'),api('/api/notifications'),api('/api/platform/profile/preferences')]).then(([connectionResult,items,prefs]:[ConnectionListResponse,PlatformNotification[],ChatPreferencesResponse])=>{if(!alive)return;setUsers(connectionResult.connections.filter(entry=>entry.status==='accepted').map(entry=>entry.user).filter(account=>account.id!==user.id));setNotifications(items);setWallpaper(prefs.chatWallpaper||'dark-grid');setWallpaperImage(prefs.chatWallpaperImage||'');if(typeof prefs.notificationSound==='boolean'){setSoundOn(prefs.notificationSound);localStorage.setItem('zera_notification_sound',prefs.notificationSound?'on':'off');window.dispatchEvent(new Event('zera-notification-sound-change'))}const query=new URLSearchParams(window.location.search);const queryUser=query.get('user');targetMessageId.current=query.get('message');if(queryUser){const target=connectionResult.connections.find(entry=>entry.status==='accepted'&&entry.user.id===queryUser)?.user;if(target)setSelected(target)}}).catch((error:Error)=>setLoadError(error.message));const presence=()=>api('/api/presence',{method:'POST'}).catch(error=>console.error('Could not update account presence:',error));presence();const connectionsTimer=window.setInterval(()=>{refreshConnections().catch(error=>console.error('Could not refresh connected users:',error))},30000);const presenceTimer=window.setInterval(presence,45000);return()=>{alive=false;window.clearInterval(connectionsTimer);window.clearInterval(presenceTimer)}},[user]);
   useEffect(()=>{
     if(!user)return;
     const socket=io(API,{auth:{token:localStorage.getItem('zera_token')||''}});
@@ -474,7 +488,7 @@ function Messages({user}:{user:User|null}){
           markConversationNotificationsRead();
           return;
         }
-        if(active)setMessages(items);
+        if(active)setMessages(current=>current.length===items.length&&current.every((item,index)=>item.id===items[index].id&&item.readAt===items[index].readAt&&item.deliveredAt===items[index].deliveredAt)?current:items);
       }catch(error){if(error instanceof Error)setLoadError(error.message)}
     };
     const onVisible=()=>{if(document.visibilityState==='visible'){void refresh();markConversationNotificationsRead()}};
@@ -504,13 +518,14 @@ function Messages({user}:{user:User|null}){
   useEffect(()=>{if(!user)return;const refresh=()=>api('/api/notifications').then((items:PlatformNotification[])=>setNotifications(items)).catch((error:Error)=>setLoadError(error.message));const timer=window.setInterval(refresh,12000);return()=>window.clearInterval(timer)},[user?.id]);
   useEffect(()=>{if(!image){setImagePreview('');return}const url=URL.createObjectURL(image);setImagePreview(url);return()=>URL.revokeObjectURL(url)},[image]);
   useEffect(()=>{if(!voiceDraft){setVoiceDraftUrl('');return}const url=URL.createObjectURL(voiceDraft);setVoiceDraftUrl(url);return()=>URL.revokeObjectURL(url)},[voiceDraft]);
-  useEffect(()=>{if(messagesRef.current)messagesRef.current.scrollTop=messagesRef.current.scrollHeight},[messages,selected]);
+  useEffect(()=>{if(!messagesRef.current)return;const targetId=targetMessageId.current;const target=targetId?messageElements.current[targetId]:null;if(target){const container=messagesRef.current;container.scrollTop+=target.getBoundingClientRect().top-container.getBoundingClientRect().top-(container.clientHeight-target.clientHeight)/2;targetMessageId.current=null;return}if(targetId&&messages.some(message=>message.id===targetId))targetMessageId.current=null;messagesRef.current.scrollTop=messagesRef.current.scrollHeight},[messages,selected]);
   useEffect(()=>()=>{if(recordingTimerRef.current!==undefined)window.clearInterval(recordingTimerRef.current);streamRef.current?.getTracks().forEach(track=>track.stop());},[]);
   useEffect(()=>{const observer=new MutationObserver(()=>setTheme(document.documentElement.dataset.theme==='light'?'light':'dark'));observer.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});return()=>observer.disconnect()},[]);
   const enableNotifications=async()=>{setPushNotice('');const secure=window.isSecureContext||location.hostname==='localhost';const ua=navigator.userAgent;const ios=/iPad|iPhone|iPod/.test(ua);const standalone=window.matchMedia('(display-mode: standalone)').matches||Boolean((navigator as Navigator&{standalone?:boolean}).standalone);if(!secure||!('serviceWorker'in navigator)||!('PushManager'in window)||typeof Notification==='undefined'||(ios&&!standalone)){setPushNotice(ios&&!standalone?'Browser push is available on supported iPhones and iPads when ZERA HUB is installed to the Home Screen. In-app notifications will continue to work.':'Browser or device push notifications are unavailable in this environment. In-app notifications will continue to work.');return}try{const key=await api('/api/push/public-key') as PushPublicKeyResponse;if(!key.publicKey){setPushNotice('Device push is not configured on this server. In-app notifications remain available.');return}let permission=Notification.permission;if(permission==='default')permission=await Notification.requestPermission();if(permission!=='granted'){setPushNotice(permission==='denied'?'Browser notifications are blocked in your browser settings. In-app notifications remain available.':'Notification permission was not granted. In-app notifications remain available.');return}const registration=await navigator.serviceWorker.register('/service-worker.js');const existing=await registration.pushManager.getSubscription();const subscription=existing||await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:decodeVapidKey(key.publicKey)});await api('/api/push/subscribe',{method:'POST',body:JSON.stringify({subscription})});setPushNotice('Browser notifications are enabled on this device.')}catch(error){console.error('Could not enable browser notifications:',error);setPushNotice('Browser push could not be enabled in this environment. In-app notifications remain available.')}}
   const clearChatStatus=(userId=selected?.id)=>{if(userId)socketRef.current?.emit('chat:status',{toUserId:userId,status:null});if(typingTimerRef.current!==undefined)window.clearTimeout(typingTimerRef.current)};
   const changeMessageBody=(value:string)=>{
     setBody(value);
+    if(!sendingRef.current)pendingSendKeyRef.current=null;
     if(!selected)return;
     if(!value.trim()){clearChatStatus();return}
     socketRef.current?.emit('chat:status',{toUserId:selected.id,status:'typing'});
@@ -551,6 +566,7 @@ function Messages({user}:{user:User|null}){
         const duration=Math.ceil((Date.now()-recordingStartedAtRef.current)/1000);
         if(blob.size>12*1024*1024){setRecordingError('This voice message is too large. Record a shorter message and try again.');return}
         if(!blob.size){setRecordingError('No audio was captured. Check microphone access and try again.');return}
+        pendingSendKeyRef.current=null;
         setVoiceDraft(blob);
         setVoiceDraftDuration(duration);
       };
@@ -577,7 +593,50 @@ function Messages({user}:{user:User|null}){
     }
   };
   const discardVoiceDraft=()=>{setVoiceDraft(null);setVoiceDraftDuration(0);setRecordingError('')};
-  const send=async()=>{if(!selected||(!body.trim()&&!image&&!voiceDraft))return;const recipientId=selected.id;try{const outgoing:ChatMessage[]=[];if(image){if(!['image/jpeg','image/png','image/gif','image/webp','image/avif'].includes(image.type)||image.size>2*1024*1024)throw new Error('Choose a supported image smaller than 2 MB.');const form=new FormData();form.append('image',image);outgoing.push(await apiUpload<ChatMessage>(`/api/messages/${recipientId}/image`,form))}if(voiceDraft){const form=new FormData();form.append('voice',voiceDraft,`voice-${Date.now()}`);form.append('durationSeconds',String(voiceDraftDuration));outgoing.push(await apiUpload<ChatMessage>(`/api/messages/${recipientId}/voice`,form))}if(body.trim())outgoing.push(await apiTyped<ChatMessage>('/api/messages',{method:'POST',body:JSON.stringify({toUserId:recipientId,body})}));setMessages(current=>[...current,...outgoing]);setBody('');setImage(null);discardVoiceDraft();clearChatStatus(recipientId)}catch(error){setLoadError(error instanceof Error?error.message:'Message could not be sent.')}}
+  const send=async()=>{
+    if(sendingRef.current||!selected||(!body.trim()&&!image&&!voiceDraft))return;
+    sendingRef.current=true;
+    setSending(true);
+    const recipientId=selected.id;
+    const requestKey=pendingSendKeyRef.current||(pendingSendKeyRef.current=crypto.randomUUID());
+    try{
+      const outgoing:ChatMessage[]=[];
+      if(image){
+        if(!['image/jpeg','image/png','image/gif','image/webp','image/avif'].includes(image.type)||image.size>2*1024*1024)throw new Error('Choose a supported image smaller than 2 MB.');
+        const form=new FormData();
+        form.append('image',image);
+        outgoing.push(await apiUpload<ChatMessage>(`/api/messages/${recipientId}/image`,form,`${requestKey}:image`));
+      }
+      if(voiceDraft){
+        const form=new FormData();
+        form.append('voice',voiceDraft,`voice-${Date.now()}`);
+        form.append('durationSeconds',String(voiceDraftDuration));
+        outgoing.push(await apiUpload<ChatMessage>(`/api/messages/${recipientId}/voice`,form,`${requestKey}:voice`));
+      }
+      if(body.trim()){
+        outgoing.push(await apiTyped<ChatMessage>('/api/messages',{
+          method:'POST',
+          headers:{'Idempotency-Key':`${requestKey}:text`},
+          body:JSON.stringify({toUserId:recipientId,body}),
+        }));
+      }
+      setMessages(current=>{
+        const byId=new Map(current.map(message=>[message.id,message]));
+        outgoing.forEach(message=>byId.set(message.id,{...byId.get(message.id),...message}));
+        return [...byId.values()];
+      });
+      setBody('');
+      setImage(null);
+      discardVoiceDraft();
+      clearChatStatus(recipientId);
+      pendingSendKeyRef.current=null;
+    }catch(error){
+      setLoadError(error instanceof Error?error.message:'Message could not be sent.');
+    }finally{
+      sendingRef.current=false;
+      setSending(false);
+    }
+  }
   const saveWallpaper=async(value:string)=>{setWallpaper(value);try{await api('/api/platform/profile/preferences',{method:'PATCH',body:JSON.stringify({chatWallpaper:value})})}catch(error){setLoadError(error instanceof Error?error.message:'Wallpaper preference could not be saved.')}}
   const uploadWallpaper=async(file:File)=>{if(!['image/jpeg','image/png','image/gif','image/webp','image/avif'].includes(file.type)||file.size>2*1024*1024){setLoadError('Choose a supported wallpaper image smaller than 2 MB.');return}try{const form=new FormData();form.append('image',file);const result=await apiUpload<{chatWallpaper:string;chatWallpaperImage:string}>('/api/profile/chat-wallpaper',form);setWallpaper(result.chatWallpaper);setWallpaperImage(result.chatWallpaperImage);setLoadError('')}catch(error){setLoadError(error instanceof Error?error.message:'Wallpaper upload failed.')}}
   const changeSound=async(enabled:boolean)=>{setSoundOn(enabled);localStorage.setItem('zera_notification_sound',enabled?'on':'off');window.dispatchEvent(new Event('zera-notification-sound-change'));try{await api('/api/platform/profile/preferences',{method:'PATCH',body:JSON.stringify({notificationSound:enabled})})}catch(error){console.error('Could not save notification sound preference:',error)}}
@@ -604,26 +663,26 @@ function Messages({user}:{user:User|null}){
           {remoteStatus&&<div className="chat-live-status" role="status" aria-live="polite">{remoteStatus==='recording'?'Recording voice…':'Typing…'}</div>}
           {loadError&&<p className="chat-inline-error" role="alert">{loadError}</p>}
           <div className="chat-message-history" ref={messagesRef}>
-            {messages.length?messages.map(message=><div className={`chat-message-row ${message.fromUserId===user.id?'outgoing':''}`} key={message.id}>
+            {messages.length?messages.map(message=><div ref={element=>{messageElements.current[message.id]=element}} className={`chat-message-row ${message.fromUserId===user.id?'outgoing':''}`} key={message.id}>
               {message.fromUserId!==user.id&&<UserAvatar user={selected} className="message-avatar"/>}
               <article className="chat-message-bubble">
                 {message.body&&<p>{message.body}</p>}
                 {message.imageUrl&&<img className="chat-image" src={message.imageUrl.startsWith('http')?message.imageUrl:`${API}${message.imageUrl}`} alt="Shared in chat"/>}
-                {message.voiceUrl&&<VoiceMessage url={message.voiceUrl} durationSeconds={message.durationSeconds}/>}
+                {message.voiceUrl&&<VoiceMessage url={message.voiceUrl} mimeType={message.voiceMimeType} durationSeconds={message.durationSeconds}/>}
                 <footer><time>{new Date(message.createdAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time>{message.fromUserId===user.id&&<span>{message.readAt?'Seen':message.deliveredAt?'Delivered':'Sent'}</span>}</footer>
               </article>
             </div>):<div className="chat-empty"><MessageCircle size={34}/><h3>Start the conversation</h3><p>Say hello to {selected.name} and start building something together.</p></div>}
           </div>
-          {imagePreview&&<div className="chat-image-preview"><img src={imagePreview} alt="Selected image preview"/><button onClick={()=>setImage(null)} aria-label="Remove image"><X size={15}/></button></div>}
+          {imagePreview&&<div className="chat-image-preview"><img src={imagePreview} alt="Selected image preview"/><button onClick={()=>{pendingSendKeyRef.current=null;setImage(null)}} aria-label="Remove image"><X size={15}/></button></div>}
           {recording&&<div className="chat-recording-controls" role="status"><span><i/>Recording voice… {formatDuration(recordingSeconds)}</span><button type="button" onClick={cancelRecording}>Cancel</button><button type="button" onClick={stopRecording}>Stop</button></div>}
           {voiceDraftUrl&&<div className="chat-voice-preview"><span>Voice message preview · {formatDuration(voiceDraftDuration)}</span><audio controls preload="metadata" src={voiceDraftUrl} aria-label="Preview voice message"/><button type="button" onClick={discardVoiceDraft} aria-label="Discard voice message"><X size={17}/></button></div>}
           {recordingError&&<p className="chat-recording-error" role="alert">{recordingError}</p>}
           <form className="chat-composer" onSubmit={event=>{event.preventDefault();void send()}}>
-            <textarea rows={1} value={body} onChange={event=>changeMessageBody(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();void send()}}} placeholder="Write a message…" aria-label="Message" disabled={recording}/>
-            <input ref={imageRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" hidden onChange={event=>setImage(event.target.files?.[0]||null)}/>
-            <button type="button" className={`chat-voice-button ${recording?'recording':''}`} onClick={()=>void startRecording()} disabled={recording||Boolean(voiceDraft)} aria-label="Record a voice message" title="Record a voice message"><Mic size={19}/></button>
-            <button type="button" className="chat-attach-button" onClick={()=>imageRef.current?.click()} aria-label="Attach image"><ImagePlus size={19}/></button>
-            <button type="submit" className="chat-send-button" disabled={!body.trim()&&!image&&!voiceDraft} aria-label="Send message"><Send size={18}/></button>
+            <textarea rows={1} value={body} onChange={event=>changeMessageBody(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();void send()}}} placeholder="Write a message…" aria-label="Message" disabled={recording||sending}/>
+            <input ref={imageRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" hidden onChange={event=>{pendingSendKeyRef.current=null;setImage(event.target.files?.[0]||null)}}/>
+            <button type="button" className={`chat-voice-button ${recording?'recording':''}`} onClick={()=>void startRecording()} disabled={recording||Boolean(voiceDraft)||sending} aria-label="Record a voice message" title="Record a voice message"><Mic size={19}/></button>
+            <button type="button" className="chat-attach-button" onClick={()=>imageRef.current?.click()} disabled={sending} aria-label="Attach image"><ImagePlus size={19}/></button>
+            <button type="submit" className="chat-send-button" disabled={sending||(!body.trim()&&!image&&!voiceDraft)} aria-label="Send message"><Send size={18}/></button>
           </form>
         </>:<div className="chat-welcome"><MessageCircle size={42}/><h2>Your conversations, in one place.</h2><p>Select an accepted connection to open a private conversation. Chat is available only after a request is accepted.</p>{!users.length&&<NavLink to="/developers" className="btn btn-primary">Discover developers <ArrowUpRight size={15}/></NavLink>}</div>}
       </section></div>
