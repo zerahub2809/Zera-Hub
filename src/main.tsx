@@ -62,22 +62,6 @@ async function inspectAudioSignal(blob:Blob):Promise<boolean|null>{
         squareSum+=samples[index]*samples[index];
         sampleCount++;
       }
-      const deleteMessage=async(message:ChatMessage)=>{
-        if(!selected||message.fromUserId!==user?.id||!window.confirm('Delete this message for everyone in this conversation?'))return;
-        try{
-          await api(`/api/messages/${encodeURIComponent(selected.id)}/${encodeURIComponent(message.id)}`,{method:'DELETE'});
-          setMessages(current=>current.filter(item=>item.id!==message.id));
-        }catch(error){setLoadError(error instanceof Error?error.message:'The message could not be deleted.')}
-      }
-      const reportSelectedUser=async()=>{
-        if(!selected)return;
-        const reason=window.prompt(`Why are you reporting ${selected.name}?`);
-        if(!reason?.trim())return;
-        try{
-          await api('/api/reports',{method:'POST',body:JSON.stringify({targetType:'user',targetId:selected.id,reason:reason.trim()})});
-          setChatNotice('Your report was submitted to the moderation team.');
-        }catch(error){setLoadError(error instanceof Error?error.message:'The report could not be submitted.')}
-      }
     }
     const rms=sampleCount?Math.sqrt(squareSum/sampleCount):0;
     console.info('Decoded voice signal check',{bytes:blob.size,mimeType:blob.type||'not reported',sampleRate:decoded.sampleRate,channels:decoded.numberOfChannels,peak,rms});
