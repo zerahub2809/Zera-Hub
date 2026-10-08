@@ -51,7 +51,7 @@ html[data-theme="light"] .chat-message-bubble footer time {
 .site-announcement-track {
   display: flex;
   width: max-content;
-  animation: site-announcement-scroll 24s linear infinite;
+  animation: site-announcement-scroll 28s linear infinite;
   will-change: transform;
 }
 
@@ -174,7 +174,7 @@ html[data-theme="light"] .chat-message-bubble footer time {
   }
 
   .site-announcement-track {
-    animation-duration: 24s;
+    animation-duration: 28s;
   }
 
   .session-expired-notice {
