@@ -472,7 +472,40 @@ function inspectAudioFile(file){
   if(!bytes.length)throw new Error('Uploaded voice recording is empty');
   if(bytes.subarray(0,4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3])))return {bytes,mimeType:'audio/webm'};
   if(bytes.subarray(0,4).toString('ascii')==='OggS')return {bytes,mimeType:'audio/ogg'};
-  if(bytes.subarray(0,4).toString('ascii')==='RIFF'&&bytes.subarray(8,12).toString('ascii')==='WAVE')return {bytes,mimeType:'audio/wav'};
+  if(bytes.subarray(0,4).toString('ascii')==='RIFF'&&bytes.subarray(8,12).toString('ascii')==='WAVE'){
+    if(bytes.length<44||bytes.readUInt32LE(4)+8!==bytes.length)throw new Error('Uploaded WAV recording has an invalid RIFF length');
+    let format=null;
+    let dataLength=0;
+    let offset=12;
+    while(offset+8<=bytes.length){
+      const chunkName=bytes.subarray(offset,offset+4).toString('ascii');
+      const chunkLength=bytes.readUInt32LE(offset+4);
+      const chunkStart=offset+8;
+      const chunkEnd=chunkStart+chunkLength;
+      if(chunkEnd>bytes.length)throw new Error('Uploaded WAV recording contains a truncated chunk');
+      if(chunkName==='fmt '){
+        if(chunkLength<16)throw new Error('Uploaded WAV recording has an incomplete format header');
+        format={
+          encoding:bytes.readUInt16LE(chunkStart),
+          channels:bytes.readUInt16LE(chunkStart+2),
+          sampleRate:bytes.readUInt32LE(chunkStart+4),
+          byteRate:bytes.readUInt32LE(chunkStart+8),
+          blockAlign:bytes.readUInt16LE(chunkStart+12),
+          bitsPerSample:bytes.readUInt16LE(chunkStart+14),
+        };
+      }else if(chunkName==='data'){
+        dataLength=chunkLength;
+      }
+      offset=chunkEnd+(chunkLength%2);
+    }
+    if(!format||format.encoding!==1||![1,2].includes(format.channels)||format.bitsPerSample!==16||
+      format.sampleRate<8000||format.sampleRate>192000||
+      format.blockAlign!==format.channels*2||format.byteRate!==format.sampleRate*format.blockAlign||
+      dataLength<=0||dataLength%format.blockAlign!==0){
+      throw new Error('Uploaded WAV recording is not valid 16-bit PCM audio');
+    }
+    return {bytes,mimeType:'audio/wav'};
+  }
   if(bytes.length>=12&&bytes.subarray(4,8).toString('ascii')==='ftyp'){
     const brand=bytes.subarray(8,12).toString('ascii');
     return {bytes,mimeType:/^(3gp|3g2)/.test(brand)?'audio/3gpp':'audio/mp4'};

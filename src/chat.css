@@ -20,7 +20,7 @@ html[data-theme="light"] .chat-message-bubble footer time {
   color: inherit;
   font-size: .78rem;
   line-height: 1.35;
-  overflow: hidden;
+  overflow: clip;
 }
 
 .site-announcement-label {
@@ -45,18 +45,14 @@ html[data-theme="light"] .chat-message-bubble footer time {
 .site-announcement-viewport {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
+  overflow: clip;
 }
 
 .site-announcement-track {
   display: flex;
   width: max-content;
-  animation: site-announcement-scroll 46s linear infinite;
+  animation: site-announcement-scroll 24s linear infinite;
   will-change: transform;
-}
-
-.site-announcement:hover .site-announcement-track {
-  animation-play-state: paused;
 }
 
 .site-announcement-group {
@@ -178,7 +174,7 @@ html[data-theme="light"] .chat-message-bubble footer time {
   }
 
   .site-announcement-track {
-    animation-duration: 38s;
+    animation-duration: 24s;
   }
 
   .session-expired-notice {
@@ -201,7 +197,7 @@ html[data-theme="light"] .chat-message-bubble footer time {
   }
 
   .site-announcement-viewport {
-    overflow: visible;
+    overflow: clip;
   }
 
   .site-announcement-track {

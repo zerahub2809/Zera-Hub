@@ -1,7 +1,7 @@
-import React,{useEffect,useMemo,useRef,useState} from 'react';
+import React,{useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {AnimatePresence,motion,useReducedMotion} from 'framer-motion';
-import { BrowserRouter,Routes,Route,Link,NavLink,useNavigate,useLocation,Navigate } from 'react-router-dom';
+import { BrowserRouter,Routes,Route,Link,NavLink,useNavigate,useLocation,useNavigationType,Navigate } from 'react-router-dom';
 import {io, type Socket} from 'socket.io-client';
 import {ArrowRight,ArrowUpRight,BrainCircuit,BriefcaseBusiness,Code2,Compass,FileCode2,FolderKanban,Globe2,Home as HomeIcon,Layers3,Mail,Menu,MessageCircle,Network,Plus,Search,Send,ShieldCheck,Sparkles,Terminal,Users,Workflow,X,Instagram,Facebook,Twitter,Settings,LogOut,UserRound,AtSign,Lock,CheckCircle2,AlertTriangle,Upload,BarChart3,Ban,RefreshCw,Bell,ImagePlus,Check,Sun,Moon,ChevronLeft,Mic,Flag,Trash2} from 'lucide-react';
 import './index.css';
@@ -34,6 +34,12 @@ type ChatPreferencesResponse={chatWallpaper?:string;chatWallpaperImage?:string;t
 type Theme='light'|'dark';
 function applyTheme(theme:Theme){document.documentElement.dataset.theme=theme;document.body.dataset.theme=theme;localStorage.setItem('zera_theme',theme);const meta=document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');if(meta)meta.content=theme==='light'?'#F7F7F5':'#111315'}
 const nav=[['/','Home'],['/about','About'],['/developers','Developers'],['/services','Services'],['/projects','Projects'],['/community','Community'],['/ai','ZERA AI'],['/collaborate','Collaborate'],['/jobs','Jobs'],['/contact','Contact']];
+const liveFeedMessages=[
+  '🔔 iPhone users: Add ZERA HUB to your Home Screen to enable device notifications.',
+  '🤖 Android users: Open ZERA HUB in Chrome and allow notifications to stay updated.',
+  '🚀 Stay connected: Enable device notifications for ZERA HUB updates.',
+  '💬 Don’t miss a message: Turn on ZERA HUB notifications.',
+];
 const api=async(path:string,options:RequestInit={})=>{const token=localStorage.getItem('zera_token');const headers=new Headers(options.headers);headers.set('Content-Type','application/json');if(token)headers.set('Authorization',`Bearer ${token}`);const r=await fetch(`${API}${path}`,{...options,headers});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||'Request failed');return data;};
 function apiUpload<T>(path:string,formData:FormData,idempotencyKey?:string):Promise<T>{const headers=new Headers();const token=localStorage.getItem('zera_token');if(token)headers.set('Authorization',`Bearer ${token}`);if(idempotencyKey)headers.set('Idempotency-Key',idempotencyKey);return fetch(`${API}${path}`,{method:'POST',headers,body:formData}).then(async response=>{const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'Upload failed');return data as T})}
 function apiTyped<T>(path:string,options:RequestInit={}):Promise<T>{return api(path,options).then((data:unknown)=>data as T)}
@@ -44,9 +50,9 @@ function formatLastSeen(user:User){if(user.online)return 'Online';if(!user.lastS
 function voiceUrl(url:string){return url.startsWith('http')?url:`${API}${url}`}
 function formatDuration(seconds:number){const safe=Math.max(0,Math.floor(seconds));return `${Math.floor(safe/60)}:${String(safe%60).padStart(2,'0')}`}
 type AudioContextWindow=Window&{webkitAudioContext?:typeof AudioContext};
-async function inspectAudioSignal(blob:Blob):Promise<boolean|null>{
+async function inspectAudioSignal(blob:Blob):Promise<boolean>{
   const AudioContextConstructor=window.AudioContext||(window as AudioContextWindow).webkitAudioContext;
-  if(!AudioContextConstructor)return null;
+  if(!AudioContextConstructor)throw new Error('This browser cannot verify the recorded audio. Please use a supported browser.');
   let context:AudioContext|undefined;
   try{
     context=new AudioContextConstructor();
@@ -67,8 +73,8 @@ async function inspectAudioSignal(blob:Blob):Promise<boolean|null>{
     console.info('Decoded voice signal check',{bytes:blob.size,mimeType:blob.type||'not reported',sampleRate:decoded.sampleRate,channels:decoded.numberOfChannels,peak,rms});
     return peak>=0.001&&rms>=0.00005;
   }catch(error){
-    console.warn('Audio signal decoding is not available for this recording; native player support will be checked instead.',error);
-    return null;
+    console.error('Voice recording failed WAV decoding verification.',error);
+    throw new Error('The recorded voice message could not be decoded as playable audio. Please record it again.');
   }finally{
     if(typeof context!=='undefined'&&context.state!=='closed')await context.close().catch(error=>console.warn('Could not close audio verification context:',error));
   }
@@ -120,7 +126,7 @@ function createVoiceWav(chunks:Float32Array[],sourceSampleRate:number):Blob{
   view.setUint16(34,16,true);
   writeText(36,'data');
   view.setUint32(40,pcm.byteLength,true);
-  new Int16Array(wav,44).set(pcm);
+  for(let index=0;index<pcm.length;index++)view.setInt16(44+index*2,pcm[index],true);
   return new Blob([wav],{type:'audio/wav'});
 }
 function VoiceMessage({url,mimeType,durationSeconds}:{url:string;mimeType?:string;durationSeconds?:number}){
@@ -234,9 +240,41 @@ function App(){
   const [sessionReady,setSessionReady]=useState(()=>!localStorage.getItem('zera_token'));
   const [sessionNotice,setSessionNotice]=useState('');
   const location=useLocation();
+  const navigationType=useNavigationType();
+  const scrollPositionsRef=useRef(new Map<string,number>());
+  const activeLocationRef=useRef({key:location.key,route:`${location.pathname}${location.hash}`});
   const isAdminRoute=location.pathname==='/admindev2809';
   const isMessagesRoute=location.pathname==='/messages';
   const isAIPage=location.pathname==='/ai';
+
+  useLayoutEffect(()=>{
+    const previousLocation=activeLocationRef.current;
+    const currentRoute=`${location.pathname}${location.hash}`;
+    scrollPositionsRef.current.set(previousLocation.key,window.scrollY);
+    activeLocationRef.current={key:location.key,route:currentRoute};
+    if(previousLocation.route===currentRoute)return;
+    const root=document.documentElement;
+    const previousScrollBehavior=root.style.scrollBehavior;
+    root.style.scrollBehavior='auto';
+    const hash=location.hash.slice(1);
+    let target:HTMLElement|null=null;
+    if(hash){
+      let targetId=hash;
+      try{targetId=decodeURIComponent(hash)}catch{targetId=hash}
+      target=document.getElementById(targetId);
+    }
+    if(target){
+      const header=document.querySelector<HTMLElement>('.header');
+      const headerOffset=header?.getBoundingClientRect().height||0;
+      const top=target.getBoundingClientRect().top+window.scrollY-headerOffset-12;
+      window.scrollTo(0,Math.max(0,top));
+    }else if(navigationType==='POP'&&scrollPositionsRef.current.has(location.key)){
+      window.scrollTo(0,scrollPositionsRef.current.get(location.key)||0);
+    }else{
+      window.scrollTo(0,0);
+    }
+    root.style.scrollBehavior=previousScrollBehavior;
+  },[location.key,location.pathname,location.hash,navigationType]);
 
   useEffect(()=>{
     const refreshSite=()=>api('/api/site-config').then(setSite).catch(error=>console.error('Could not load public website configuration:',error));
@@ -364,6 +402,18 @@ function App(){
 function Brand({site,compact=false}:{site:any;compact?:boolean}){return <NavLink className="brand" to="/"><BrandMark site={site}/>{!compact&&<span><strong>{site?.brandName||'ZERA HUB'}</strong><small>{site?.tagline||'Grow Ideas. Build Tomorrow.'}</small></span>}</NavLink>}
 function LogoMark({site}:{site:any}){return <BrandMark site={site}/>}
 
+function LiveFeed({announcement}:{announcement:string}){
+  const messages=Array.from(new Set([...liveFeedMessages,announcement.trim()].filter(Boolean)));
+  const renderMessages=(keyPrefix:string)=><div className="site-announcement-group">{messages.map((message,index)=><span className="site-announcement-message" key={`${keyPrefix}-${index}`}>{message}</span>)}</div>;
+  return <div className="site-announcement" role="region" aria-label="Live Feed">
+    <span className="site-announcement-label"><i aria-hidden="true"/>Live</span>
+    <div className="site-announcement-viewport">
+      <div className="site-announcement-track" aria-hidden="true">{renderMessages('first')}{renderMessages('second')}</div>
+    </div>
+    <span className="site-announcement-sr-only">{messages.join(' ')}</span>
+  </div>;
+}
+
 function Header({site,user,sessionReady,onAuth}:{site:any;user:User|null;sessionReady:boolean;onAuth:(x:any)=>void}){
   const [open,setOpen]=useState(false);
   const [unreadNotifs,setUnreadNotifs]=useState(0);
@@ -433,7 +483,7 @@ function Header({site,user,sessionReady,onAuth}:{site:any;user:User|null;session
 
   return (
     <header className="header" ref={headerRef}>
-      {site?.announcement?.enabled&&typeof site.announcement.text==='string'&&site.announcement.text.trim()&&<div className="site-announcement" role="status">{site.announcement.text}</div>}
+      {site?.announcement?.enabled&&typeof site.announcement.text==='string'&&site.announcement.text.trim()&&<LiveFeed announcement={site.announcement.text}/>}
       <div className="container header-inner">
         <Brand site={site}/>
         <nav className="desktop-nav">
@@ -823,7 +873,9 @@ function Messages({user}:{user:User|null}){
         console.info('PCM voice recording stopped',{sourceSampleRate:audioSampleRateRef.current,outputSampleRate:16000,channels:1,mimeType:blob.type,chunkCount:capturedChunks.length,capturedFrames,capturedBytes,blobBytes:blob.size,durationSeconds:duration});
         if(blob.size>12*1024*1024){setRecordingError('This voice message is too large. Record a shorter message and try again.');return}
         if(!capturedChunks.length||!capturedFrames||!blob.size){console.error('Voice recording produced an empty audio Blob',{mimeType:blob.type,chunkCount:capturedChunks.length,capturedFrames,capturedBytes,blobBytes:blob.size});setRecordingError('No audio data was captured. Check microphone access and try again.');return}
-        const signalPresent=await inspectAudioSignal(blob);
+        let signalPresent:boolean;
+        try{signalPresent=await inspectAudioSignal(blob)}
+        catch(error){setRecordingError(error instanceof Error?error.message:'The recorded voice message could not be decoded. Please record it again.');return}
         if(signalPresent===false){console.error('Captured voice recording contains no audible decoded microphone signal',{mimeType:blob.type,bytes:blob.size});setRecordingError('The recording contains no audible microphone signal. Check the selected microphone and record again.');return}
         pendingSendKeyRef.current=null;
         setVoiceDraft(blob);
@@ -877,6 +929,7 @@ function Messages({user}:{user:User|null}){
       }
       if(voiceDraft){
         if(!voiceDraft.size||voiceDraft.size>12*1024*1024)throw new Error('The recorded voice message is empty or exceeds the 12 MB limit. Record it again.');
+        if(voiceDraft.type!=='audio/wav')throw new Error('The recorded voice message is not a supported WAV audio file. Record it again.');
         console.info('Uploading recorded voice message',{bytes:voiceDraft.size,mimeType:voiceDraft.type,durationSeconds:voiceDraftDuration});
         const form=new FormData();
         form.append('voice',voiceDraft,`voice-${Date.now()}.wav`);
@@ -886,9 +939,10 @@ function Messages({user}:{user:User|null}){
         const storedResponse=await fetch(voiceUrl(uploaded.voiceUrl),{cache:'no-store'});
         if(!storedResponse.ok)throw new Error(`The uploaded voice message could not be read back from storage (${storedResponse.status}).`);
         const storedAudio=await storedResponse.blob();
-        console.info('Voice file read back from storage',{url:uploaded.voiceUrl,status:storedResponse.status,contentType:storedResponse.headers.get('Content-Type'),bytes:storedAudio.size});
-        if(storedAudio.size!==uploaded.voiceSizeBytes||storedAudio.type.split(';')[0]!==uploaded.voiceMimeType){
-          console.error('Stored voice message verification failed',{expectedBytes:uploaded.voiceSizeBytes,storedBytes:storedAudio.size,expectedMime:uploaded.voiceMimeType,storedMime:storedAudio.type});
+        const responseContentType=storedResponse.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase()||'';
+        console.info('Voice file read back from storage',{url:uploaded.voiceUrl,status:storedResponse.status,contentType:responseContentType,blobType:storedAudio.type,bytes:storedAudio.size});
+        if(storedAudio.size!==uploaded.voiceSizeBytes||responseContentType!==uploaded.voiceMimeType||storedAudio.type.split(';')[0]!==uploaded.voiceMimeType){
+          console.error('Stored voice message verification failed',{expectedBytes:uploaded.voiceSizeBytes,storedBytes:storedAudio.size,expectedMime:uploaded.voiceMimeType,responseContentType,storedMime:storedAudio.type});
           throw new Error('The uploaded voice recording did not pass its storage integrity check. Please try recording again.');
         }
         const storedSignalPresent=await inspectAudioSignal(storedAudio);
