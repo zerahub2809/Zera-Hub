@@ -33,7 +33,7 @@ const dataFile=path.join(dataDir,'db.json');
 const uploadDir=path.join(dataDir,'uploads');
 const legacyDataFile=path.join(__dirname,'data','db.json');
 const legacyUploadDir=path.join(__dirname,'uploads');
-const initialData={users:[],messages:[],posts:[],reports:[],moderationActions:[],notifications:[],pushSubscriptions:[],connections:[],jobs:[],applications:[],aiConversations:[],adminLoginActivity:[],adminAuditLogs:[],siteConfig:{brandName:'ZERA HUB',tagline:'Grow Ideas. Build Tomorrow.',logoUrl:'/assets/WhatsApp%20Image%202026-09-21%20at%2010.07.22%20AM.jpeg',contactEmail:'zerahub@outlook.com',socials:{facebook:'https://www.facebook.com/share/1BDT7JfvXm/',instagram:'https://www.instagram.com/zerahub2026/',x:'https://x.com/zerahub2809'},announcement:{enabled:false,text:''}}};
+const initialData={users:[],messages:[],privateChatMedia:[],posts:[],reports:[],moderationActions:[],notifications:[],pushSubscriptions:[],connections:[],jobs:[],applications:[],aiConversations:[],adminLoginActivity:[],adminAuditLogs:[],siteConfig:{brandName:'ZERA HUB',tagline:'Grow Ideas. Build Tomorrow.',logoUrl:'/assets/WhatsApp%20Image%202026-09-21%20at%2010.07.22%20AM.jpeg',contactEmail:'zerahub@outlook.com',socials:{facebook:'https://www.facebook.com/share/1BDT7JfvXm/',instagram:'https://www.instagram.com/zerahub2026/',x:'https://x.com/zerahub2809'},announcement:{enabled:false,text:''}}};
 let memoryState=null;
 let mongoStateCollection=null;
 let durableState=null;
@@ -312,6 +312,17 @@ app.use(helmet({crossOriginResourcePolicy:{policy:'cross-origin'},crossOriginOpe
 app.use(cors({origin:allowClientOrigin,credentials:true,methods:['GET','POST','PUT','PATCH','DELETE','OPTIONS'],allowedHeaders:['Content-Type','Authorization','Accept','X-Requested-With','Idempotency-Key']}));
 app.options('*',cors({origin:allowClientOrigin,credentials:true}));
 app.use(express.json({limit:'2mb'}));
+app.use('/uploads',(req,res,next)=>{
+  let filename='';
+  try{filename=decodeURIComponent(req.path.slice(1))}
+  catch{return res.status(404).json({error:'Media not found'})}
+  if(!isSafeMediaFilename(filename))return res.status(404).json({error:'Media not found'});
+  if(!isPrivateChatMedia(filename)){
+    if(isPublicUpload(filename))return next();
+    return res.status(404).json({error:'Media not found'});
+  }
+  auth(req,res,()=>sendPrivateChatMedia(req,res,filename,next));
+});
 app.use('/uploads',express.static(uploadDir,{setHeaders:(res,filePath)=>{
   const contentType={
     '.webm':'audio/webm',
@@ -356,6 +367,10 @@ app.use('/api/messages',(req,res,next)=>auth(req,res,()=>{
   if(!connected)return res.status(403).json({error:'Accept the connection request before messaging'});
   next();
 }));
+app.get('/api/chat/media/:filename',auth,(req,res,next)=>{
+  if(!isSafeMediaFilename(req.params.filename))return res.status(404).json({error:'Media not found'});
+  sendPrivateChatMedia(req,res,req.params.filename,next);
+});
 
 function tokenFor(user){return jwt.sign({id:user.id,role:user.role||'user',email:user.role==='admin'?user.email:undefined,sessionVersion:Number(user.sessionVersion||0)},JWT_SECRET,{expiresIn:'7d'});}
 function accountTypeOf(user){return user.accountType==='hire'?'hire':'developer';}
@@ -389,6 +404,74 @@ function auth(req,res,next){
   }
 }
 function areConnected(firstId,secondId){return (load().connections||[]).some(connection=>connection.status==='accepted'&&((connection.requesterId===firstId&&connection.recipientId===secondId)||(connection.requesterId===secondId&&connection.recipientId===firstId)));}
+function isSafeMediaFilename(filename){
+  return typeof filename==='string'&&filename.length<=200&&
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(filename)&&
+    filename===path.basename(filename)&&!filename.includes('..');
+}
+function referencesUpload(value,filename){
+  if(typeof value!=='string'||!value.startsWith('/uploads/')||value.startsWith('//'))return false;
+  try{
+    const pathname=new URL(value,'http://zera-hub.local').pathname;
+    return decodeURIComponent(pathname)===`/uploads/${filename}`;
+  }catch{
+    return false;
+  }
+}
+function isPrivateChatMedia(filename){
+  const db=load();
+  return (db.privateChatMedia||[]).includes(filename)||
+    (db.messages||[]).some(message=>
+      referencesUpload(message.imageUrl,filename)||referencesUpload(message.voiceUrl,filename));
+}
+function isPublicUpload(filename){
+  const db=load();
+  // Public uploads are served only while referenced by records populated by upload handlers.
+  // Profile/preferences APIs reject arbitrary upload paths; unknown files stay non-public.
+  return (db.users||[]).some(user=>
+    referencesUpload(user.avatar,filename)||
+    referencesUpload(user.preferences?.chatWallpaperImage,filename))||
+    (db.posts||[]).some(post=>referencesUpload(post.imageUrl,filename))||
+    referencesUpload(db.siteConfig?.logoUrl,filename);
+}
+function sendPrivateChatMedia(req,res,filename,next){
+  const db=load();
+  const message=(db.messages||[]).find(item=>
+    referencesUpload(item.imageUrl,filename)||referencesUpload(item.voiceUrl,filename));
+  if(!message)return res.status(404).json({error:'Media not found'});
+  if(req.user.id!==message.fromUserId&&req.user.id!==message.toUserId){
+    return res.status(403).json({error:'You are not authorized to access this media'});
+  }
+  const otherUserId=req.user.id===message.fromUserId?message.toUserId:message.fromUserId;
+  if(!areConnected(req.user.id,otherUserId)){
+    return res.status(403).json({error:'You are not authorized to access this media'});
+  }
+  const resolvedUploadDir=path.resolve(uploadDir);
+  const mediaPath=path.resolve(resolvedUploadDir,filename);
+  const relativePath=path.relative(resolvedUploadDir,mediaPath);
+  if(!relativePath||relativePath.startsWith(`..${path.sep}`)||path.isAbsolute(relativePath)){
+    return res.status(404).json({error:'Media not found'});
+  }
+  try{
+    if(!fs.statSync(mediaPath).isFile())return res.status(404).json({error:'Media not found'});
+  }catch(error){
+    if(error.code==='ENOENT'||error.code==='ENOTDIR')return res.status(404).json({error:'Media not found'});
+    return next(error);
+  }
+  res.set({'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Accept-Ranges':'bytes'});
+  const contentType={
+    '.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.gif':'image/gif',
+    '.webp':'image/webp','.avif':'image/avif',
+    '.webm':'audio/webm','.ogg':'audio/ogg','.m4a':'audio/mp4','.mp3':'audio/mpeg',
+    '.wav':'audio/wav','.aac':'audio/aac','.3gp':'audio/3gpp',
+  }[path.extname(filename).toLowerCase()];
+  if(contentType)res.type(contentType);
+  res.sendFile(mediaPath,error=>{
+    if(!error)return;
+    if(res.headersSent)return next(error);
+    res.status(404).json({error:'Media not found'});
+  });
+}
 io.use((socket,next)=>{
   try{
     const claims=jwt.verify(socket.handshake.auth?.token,JWT_SECRET);
@@ -685,7 +768,7 @@ app.post('/api/auth/logout',auth,asyncRoute(async(req,res)=>{
 }));
 app.get('/api/users',auth,(req,res)=>{const db=load();res.json(db.users.filter(u=>u.status==='active').map(publicUser));});
 app.get('/api/users/:id',auth,(req,res)=>{const u=load().users.find(x=>x.id===req.params.id);if(!u)return res.status(404).json({error:'User not found'});res.json(publicUser(u));});
-app.patch('/api/profile',auth,asyncRoute(async(req,res)=>{const db=load();const u=db.users.find(x=>x.id===req.user.id);if(!u)return res.status(404).json({error:'User not found'});for(const k of ['name','bio','skills','avatar'])if(req.body[k]!==undefined)u[k]=req.body[k];await save(db);res.json(publicUser(u));}));
+app.patch('/api/profile',auth,asyncRoute(async(req,res)=>{const db=load();const u=db.users.find(x=>x.id===req.user.id);if(!u)return res.status(404).json({error:'User not found'});if(req.body.avatar!==undefined&&req.body.avatar!==u.avatar&&req.body.avatar!=='')return res.status(400).json({error:'Upload a profile image using the avatar upload endpoint'});for(const k of ['name','bio','skills','avatar'])if(req.body[k]!==undefined)u[k]=req.body[k];await save(db);res.json(publicUser(u));}));
 app.post('/api/messages',auth,asyncRoute(async(req,res)=>{const idempotency=messageRequestKey(req,res);if(!idempotency)return;if(idempotency.existing)return res.json(idempotency.existing);const {toUserId,body}=req.body||{};if(!toUserId||typeof body!=='string'||!body.trim())return res.status(400).json({error:'Recipient and message are required'});const risk=riskText(body);const db=load();const message={id:crypto.randomUUID(),fromUserId:req.user.id,toUserId,body:body.trim(),imageUrl:'',createdAt:new Date().toISOString(),sentAt:new Date().toISOString(),deliveredAt:null,readAt:null,risk,...(idempotency.key?{clientRequestId:idempotency.key}:{})};if(risk.level==='critical'||risk.level==='high'){db.moderationActions.push({id:crypto.randomUUID(),type:'message_blocked',userId:req.user.id,reason:risk.flags,createdAt:new Date().toISOString()});await save(db);return res.status(422).json({error:'Message blocked by ZERA Trust & Safety',risk});}db.messages.push(message);await save(db);io.to(toUserId).emit('message:new',message);const sender=db.users.find(item=>item.id===req.user.id);const senderName=sender?.name||'A ZERA HUB member';await notifyUser(toUserId,'message',`New message from ${senderName}`,message.body.replace(/\s+/g,' ').slice(0,120),{url:`/messages?user=${encodeURIComponent(req.user.id)}&message=${encodeURIComponent(message.id)}`,fromUserId:req.user.id,messageId:message.id});res.status(201).json(message);}));
 app.get('/api/messages/:userId',auth,asyncRoute(async(req,res)=>{const db=load();const now=new Date().toISOString();const messages=db.messages.filter(message=>(message.fromUserId===req.user.id&&message.toUserId===req.params.userId)||(message.toUserId===req.user.id&&message.fromUserId===req.params.userId));const delivered=messages.filter(message=>message.toUserId===req.user.id&&!message.deliveredAt);for(const message of delivered)message.deliveredAt=now;if(delivered.length)await save(db);res.json(messages);}));
 app.patch('/api/messages/:userId/read',auth,asyncRoute(async(req,res)=>{const db=load();const readAt=new Date().toISOString();const messages=db.messages.filter(message=>message.fromUserId===req.params.userId&&message.toUserId===req.user.id&&!message.readAt);const messageIds=messages.map(message=>message.id);if(messageIds.length){messages.forEach(message=>{message.readAt=readAt});await save(db);io.to(req.params.userId).emit('message:read',{readerId:req.user.id,messageIds,readAt});}res.json({messageIds,readAt});}));
@@ -694,6 +777,12 @@ app.delete('/api/messages/:userId/:messageId',auth,asyncRoute(async(req,res)=>{
   const index=db.messages.findIndex(message=>message.id===req.params.messageId&&message.fromUserId===req.user.id&&message.toUserId===req.params.userId);
   if(index<0)return res.status(404).json({error:'Message not found or you do not have permission to delete it'});
   const [message]=db.messages.splice(index,1);
+  db.privateChatMedia||=[];
+  for(const mediaUrl of [message.voiceUrl,message.imageUrl]){
+    if(typeof mediaUrl!=='string'||!mediaUrl.startsWith('/uploads/'))continue;
+    const filename=mediaUrl.slice('/uploads/'.length);
+    if(isSafeMediaFilename(filename)&&!db.privateChatMedia.includes(filename))db.privateChatMedia.push(filename);
+  }
   db.notifications=(db.notifications||[]).filter(item=>item.data?.messageId!==message.id);
   await save(db);
   for(const mediaUrl of [message.voiceUrl,message.imageUrl]){
@@ -810,7 +899,7 @@ function messageRequestKey(req,res){
 function validImageSignature(file){const bytes=fs.readFileSync(file.path);if(file.mimetype==='image/jpeg')return bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff;if(file.mimetype==='image/png')return bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]));if(file.mimetype==='image/gif')return bytes.subarray(0,6).toString('ascii').startsWith('GIF8');if(file.mimetype==='image/webp')return bytes.subarray(0,4).toString('ascii')==='RIFF'&&bytes.subarray(8,12).toString('ascii')==='WEBP';if(file.mimetype==='image/avif')return bytes.subarray(4,12).toString('ascii').includes('ftyp')&&/avif|avis|mif1/.test(bytes.subarray(8,16).toString('ascii'));return false;}
 app.post('/api/profile/avatar',auth,communityUpload.single('avatar'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'A valid image file is required'});if(!validImageSignature(req.file)){fs.unlinkSync(req.file.path);return res.status(415).json({error:'The uploaded file is not a supported image'});}const db=load();const user=db.users.find(item=>item.id===req.user.id);if(!user){fs.unlinkSync(req.file.path);return res.status(404).json({error:'User not found'});}user.avatar=`/uploads/${req.file.filename}`;await save(db);res.json(publicUser(user));}));
 app.post('/api/profile/chat-wallpaper',auth,communityUpload.single('image'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'A valid image file is required'});if(!validImageSignature(req.file)){fs.unlinkSync(req.file.path);return res.status(415).json({error:'The uploaded file is not a supported image'});}const db=load();const user=db.users.find(item=>item.id===req.user.id);if(!user){fs.unlinkSync(req.file.path);return res.status(404).json({error:'User not found'});}user.preferences||={};user.preferences.chatWallpaper='custom';user.preferences.chatWallpaperImage=`/uploads/${req.file.filename}`;await save(db);res.status(201).json({chatWallpaper:'custom',chatWallpaperImage:user.preferences.chatWallpaperImage});}));
-app.post('/api/messages/:userId/image',auth,communityUpload.single('image'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'A valid image file is required'});if(!validImageSignature(req.file)){fs.unlinkSync(req.file.path);return res.status(415).json({error:'The uploaded file is not a supported image'});}const idempotency=messageRequestKey(req,res);if(!idempotency){fs.unlinkSync(req.file.path);return;}if(idempotency.existing){fs.unlinkSync(req.file.path);return res.json(idempotency.existing);}const db=load();const recipient=db.users.find(item=>item.id===req.params.userId&&item.status==='active');if(!recipient){fs.unlinkSync(req.file.path);return res.status(404).json({error:'Recipient not found'});}const message={id:crypto.randomUUID(),fromUserId:req.user.id,toUserId:req.params.userId,body:'',imageUrl:`/uploads/${req.file.filename}`,createdAt:new Date().toISOString(),sentAt:new Date().toISOString(),deliveredAt:null,readAt:null,...(idempotency.key?{clientRequestId:idempotency.key}:{})};db.messages.push(message);await save(db);io.to(req.params.userId).emit('message:new',message);const senderName=db.users.find(item=>item.id===req.user.id)?.name||'A ZERA HUB member';await notifyUser(req.params.userId,'message',`New message from ${senderName}`,'Sent you an image.',{url:`/messages?user=${encodeURIComponent(req.user.id)}&message=${encodeURIComponent(message.id)}`,fromUserId:req.user.id,messageId:message.id});res.status(201).json(message);}));
+app.post('/api/messages/:userId/image',auth,communityUpload.single('image'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'A valid image file is required'});if(!validImageSignature(req.file)){fs.unlinkSync(req.file.path);return res.status(415).json({error:'The uploaded file is not a supported image'});}const idempotency=messageRequestKey(req,res);if(!idempotency){fs.unlinkSync(req.file.path);return;}if(idempotency.existing){fs.unlinkSync(req.file.path);return res.json(idempotency.existing);}const db=load();const recipient=db.users.find(item=>item.id===req.params.userId&&item.status==='active');if(!recipient){fs.unlinkSync(req.file.path);return res.status(404).json({error:'Recipient not found'});}const message={id:crypto.randomUUID(),fromUserId:req.user.id,toUserId:req.params.userId,body:'',imageUrl:`/uploads/${req.file.filename}`,createdAt:new Date().toISOString(),sentAt:new Date().toISOString(),deliveredAt:null,readAt:null,...(idempotency.key?{clientRequestId:idempotency.key}:{})};db.privateChatMedia||=[];db.privateChatMedia.push(req.file.filename);db.messages.push(message);try{await save(db);}catch(error){fs.unlinkSync(req.file.path);throw error;}io.to(req.params.userId).emit('message:new',message);const senderName=db.users.find(item=>item.id===req.user.id)?.name||'A ZERA HUB member';await notifyUser(req.params.userId,'message',`New message from ${senderName}`,'Sent you an image.',{url:`/messages?user=${encodeURIComponent(req.user.id)}&message=${encodeURIComponent(message.id)}`,fromUserId:req.user.id,messageId:message.id});res.status(201).json(message);}));
 app.post('/api/messages/:userId/voice',auth,receiveVoiceUpload,asyncRoute(async(req,res)=>{
   if(!req.file)return res.status(400).json({error:'A supported voice recording is required'});
   const cleanup=()=>{if(req.file?.path&&fs.existsSync(req.file.path))fs.unlinkSync(req.file.path);};
@@ -860,6 +949,8 @@ app.post('/api/messages/:userId/voice',auth,receiveVoiceUpload,asyncRoute(async(
     return res.status(500).json({error:'The voice recording changed while being stored. Please try again.'});
   }
   const message={id:crypto.randomUUID(),fromUserId:req.user.id,toUserId:req.params.userId,body:'',imageUrl:'',voiceUrl:`/uploads/${storedFilename}`,voiceMimeType:audio.mimeType,durationSeconds,createdAt:new Date().toISOString(),sentAt:new Date().toISOString(),deliveredAt:null,readAt:null,...(idempotency.key?{clientRequestId:idempotency.key}:{})};
+  db.privateChatMedia||=[];
+  db.privateChatMedia.push(storedFilename);
   db.messages.push(message);
   try{
     await save(db);

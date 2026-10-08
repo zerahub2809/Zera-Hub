@@ -64,7 +64,58 @@ function decodeVapidKey(value:string){const padding='='.repeat((4-value.length%4
 function UserAvatar({user,className=''}:{user:User;className?:string}){return <span className={`inner-avatar ${className}`}>{user.avatar?<img src={user.avatar.startsWith('http')?user.avatar:`${API}${user.avatar}`} alt=""/>:user.name?.slice(0,1).toUpperCase()}<i className={user.online?'online':'offline'}/></span>}
 function VerificationBadge(){return <span className="verification-badge" title="Verified profile" aria-label="Verified profile"><Check size={11}/></span>}
 function formatLastSeen(user:User){if(user.online)return 'Online';if(!user.lastSeenAt)return 'Offline';const elapsed=Date.now()-Date.parse(user.lastSeenAt);if(elapsed<3600000)return `Last seen ${Math.max(1,Math.floor(elapsed/60000))}m ago`;if(elapsed<86400000)return `Last seen ${Math.floor(elapsed/3600000)}h ago`;return `Last seen ${new Date(user.lastSeenAt).toLocaleDateString()}`}
-function voiceUrl(url:string){return url.startsWith('http')?url:`${API}${url}`}
+function privateChatMediaPath(url:string){
+  const mediaUrl=new URL(url,API);
+  if(!['http:','https:'].includes(mediaUrl.protocol)||!mediaUrl.pathname.startsWith('/uploads/'))throw new Error('This chat media URL is invalid.');
+  let filename='';
+  try{filename=decodeURIComponent(mediaUrl.pathname.slice('/uploads/'.length))}
+  catch{throw new Error('This chat media URL is invalid.')}
+  if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(filename)||filename.includes('..'))throw new Error('This chat media URL is invalid.');
+  return `${API}/api/chat/media/${encodeURIComponent(filename)}`;
+}
+async function fetchPrivateChatMedia(url:string){
+  const token=localStorage.getItem('zera_token');
+  if(!token)throw new Error('Sign in to view chat media.');
+  const response=await fetch(privateChatMediaPath(url),{
+    headers:{Authorization:`Bearer ${token}`},
+    cache:'no-store',
+  });
+  if(!response.ok){
+    const data=await response.json().catch(()=>({}));
+    throw new Error(data.error||'This chat media could not be loaded.');
+  }
+  const blob=await response.blob();
+  if(!blob.size)throw new Error('This chat media file is empty.');
+  return {blob,contentType:response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase()||''};
+}
+function usePrivateChatMedia(url:string,expectedType:'audio'|'image'){
+  const [media,setMedia]=useState<{url:string;objectUrl:string}|null>(null);
+  const [error,setError]=useState('');
+  useEffect(()=>{
+    let active=true;
+    let objectUrl:string|null=null;
+    setMedia(null);
+    setError('');
+    void fetchPrivateChatMedia(url).then(({blob,contentType})=>{
+      if(!contentType.startsWith(`${expectedType}/`))throw new Error('This chat media has an unsupported content type.');
+      if(!active)return;
+      objectUrl=URL.createObjectURL(blob);
+      setMedia({url,objectUrl});
+    }).catch(loadError=>{
+      if(active)setError(loadError instanceof Error?loadError.message:'This chat media could not be loaded.');
+    });
+    return ()=>{
+      active=false;
+      if(objectUrl)URL.revokeObjectURL(objectUrl);
+    };
+  },[expectedType,url]);
+  return {source:media?.url===url?media.objectUrl:'',error};
+}
+function ChatImage({url}:{url:string}){
+  const {source,error}=usePrivateChatMedia(url,'image');
+  if(error)return <small className="chat-recording-error" role="alert">{error}</small>;
+  return source?<img className="chat-image" src={source} alt="Shared in chat"/>:<span className="chat-inline-notice" role="status">Loading image…</span>;
+}
 function formatDuration(seconds:number){const safe=Math.max(0,Math.floor(seconds));return `${Math.floor(safe/60)}:${String(safe%60).padStart(2,'0')}`}
 type AudioContextWindow=Window&{webkitAudioContext?:typeof AudioContext};
 async function inspectAudioSignal(blob:Blob):Promise<boolean>{
@@ -148,9 +199,10 @@ function createVoiceWav(chunks:Float32Array[],sourceSampleRate:number):Blob{
 }
 function VoiceMessage({url,mimeType,durationSeconds}:{url:string;mimeType?:string;durationSeconds?:number}){
   const [playbackError,setPlaybackError]=useState('');
+  const {source,error:mediaLoadError}=usePrivateChatMedia(url,'audio');
   return <div className="chat-voice-message">
     <audio
-      src={voiceUrl(url)}
+      src={source||undefined}
       controls
       preload="metadata"
       aria-label="Voice message"
@@ -167,6 +219,7 @@ function VoiceMessage({url,mimeType,durationSeconds}:{url:string;mimeType?:strin
       }}
     />
     {durationSeconds!==undefined&&<span>{formatDuration(durationSeconds)}</span>}
+    {mediaLoadError&&<small className="chat-recording-error" role="alert">{mediaLoadError}</small>}
     {playbackError&&<small className="chat-recording-error" role="alert">{playbackError}</small>}
   </div>;
 }
@@ -981,11 +1034,8 @@ function Messages({user}:{user:User|null}){
         form.append('durationSeconds',String(voiceDraftDuration));
         const uploaded=await apiUpload<ChatMessage&{voiceSizeBytes:number;voiceSha256:string}>(`/api/messages/${recipientId}/voice`,form,`${requestKey}:voice`);
         if(!uploaded.voiceUrl||!uploaded.voiceMimeType||uploaded.voiceSizeBytes<=0||!uploaded.voiceSha256)throw new Error('The server did not confirm a valid stored voice recording.');
-        const storedResponse=await fetch(voiceUrl(uploaded.voiceUrl),{cache:'no-store'});
-        if(!storedResponse.ok)throw new Error(`The uploaded voice message could not be read back from storage (${storedResponse.status}).`);
-        const storedAudio=await storedResponse.blob();
-        const responseContentType=storedResponse.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase()||'';
-        console.info('Voice file read back from storage',{url:uploaded.voiceUrl,status:storedResponse.status,contentType:responseContentType,blobType:storedAudio.type,bytes:storedAudio.size});
+        const {blob:storedAudio,contentType:responseContentType}=await fetchPrivateChatMedia(uploaded.voiceUrl);
+        console.info('Voice file read back from storage',{url:uploaded.voiceUrl,contentType:responseContentType,blobType:storedAudio.type,bytes:storedAudio.size});
         if(storedAudio.size!==uploaded.voiceSizeBytes||responseContentType!==uploaded.voiceMimeType||storedAudio.type.split(';')[0]!==uploaded.voiceMimeType){
           console.error('Stored voice message verification failed',{expectedBytes:uploaded.voiceSizeBytes,storedBytes:storedAudio.size,expectedMime:uploaded.voiceMimeType,responseContentType,storedMime:storedAudio.type});
           throw new Error('The uploaded voice recording did not pass its storage integrity check. Please try recording again.');
@@ -1083,7 +1133,7 @@ function Messages({user}:{user:User|null}){
               {message.fromUserId!==user.id&&<UserAvatar user={selected} className="message-avatar"/>}
               <article className="chat-message-bubble">
                 {message.body&&<p>{message.body}</p>}
-                {message.imageUrl&&<img className="chat-image" src={message.imageUrl.startsWith('http')?message.imageUrl:`${API}${message.imageUrl}`} alt="Shared in chat"/>}
+                {message.imageUrl&&<ChatImage url={message.imageUrl}/>}
                 {message.voiceUrl&&<VoiceMessage url={message.voiceUrl} mimeType={message.voiceMimeType} durationSeconds={message.durationSeconds}/>}
                 {message.fromUserId===user.id&&<div className="chat-message-actions"><button type="button" onClick={()=>deleteMessage(message)} aria-label="Delete message" title="Delete message"><Trash2 size={14}/></button></div>}
                 <footer><time>{new Date(message.createdAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time>{message.fromUserId===user.id&&<span>{message.readAt?'Seen':message.deliveredAt?'Delivered':'Sent'}</span>}</footer>
@@ -1131,7 +1181,7 @@ function LegacyMessages({user}:{user:User|null}){
       {users.map(account=><button className={`conversation-item ${selected?.id===account.id?'selected':''}`} onClick={()=>setSelected(account)} key={account.id}><UserAvatar user={account}/><span><b>{account.name}{account.verified&&<VerificationBadge/>}</b><small>{formatLastSeen(account)}</small></span></button>)}
       {!users.length&&<div className="chat-empty-small"><Users size={20}/><b>No conversations yet</b><span>Accepted connections appear here.</span></div>}
       <div className="wallpaper-control"><label htmlFor="chat-wallpaper">Chat wallpaper</label><select id="chat-wallpaper" value={wallpaper} onChange={event=>saveWallpaper(event.target.value)}><option value="dark-grid">Dark grid</option><option value="deep-space">Deep space</option><option value="circuit">Circuit</option><option value="aurora">Aurora</option><option value="light-grid">Light grid</option><option value="light-circuit">Light circuit</option></select><label className="sound-toggle"><input type="checkbox" checked={localStorage.getItem('zera_notification_sound')==='on'} onChange={event=>localStorage.setItem('zera_notification_sound',event.target.checked?'on':'off')}/> Notification sound</label></div>
-    </aside><section className="chat-panel">{loadError&&<p className="platform-error" role="status">{loadError}</p>}{selected?<><header className="chat-title"><UserAvatar user={selected}/><span><b>{selected.name}{selected.verified&&<VerificationBadge/>}</b><small>{formatLastSeen(selected)}</small></span></header><div className="messages">{messages.map(message=><div key={message.id} className={`msg ${message.fromUserId===user.id?'mine':''}`}>{message.body&&<p>{message.body}</p>}{message.imageUrl&&<img className="chat-image" src={message.imageUrl.startsWith('http')?message.imageUrl:`${API}${message.imageUrl}`} alt="Shared in chat"/>}<footer><time>{new Date(message.createdAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time>{message.fromUserId===user.id&&<span>{message.readAt?'Read':message.deliveredAt?'Delivered':'Sent'}</span>}</footer></div>)}</div>{imagePreview&&<div className="image-preview"><img src={imagePreview} alt="Preview"/><button onClick={()=>setImage(null)} aria-label="Remove image"><X size={14}/></button></div>}<div className="send-row"><input value={body} onChange={event=>setBody(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();void send()}}} placeholder="Write a message…"/><input ref={imageRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" hidden onChange={event=>setImage(event.target.files?.[0]||null)}/><button className="icon-btn" onClick={()=>imageRef.current?.click()} title="Attach image"><ImagePlus size={18}/></button><button className="send-message" onClick={()=>void send()} disabled={!body.trim()&&!image}><Send size={17}/></button></div></>:<div className="chat-empty"><MessageCircle size={34}/><h3>{users.length?'Select a conversation':'No conversations yet'}</h3><p>{users.length?'Choose an accepted connection to start chatting.':'Connect with a developer and accept the request before messaging.'}</p><NavLink to="/developers" className="btn btn-ghost">Discover developers <ArrowUpRight size={14}/></NavLink></div>}</section></div></Page>
+    </aside><section className="chat-panel">{loadError&&<p className="platform-error" role="status">{loadError}</p>}{selected?<><header className="chat-title"><UserAvatar user={selected}/><span><b>{selected.name}{selected.verified&&<VerificationBadge/>}</b><small>{formatLastSeen(selected)}</small></span></header><div className="messages">{messages.map(message=><div key={message.id} className={`msg ${message.fromUserId===user.id?'mine':''}`}>{message.body&&<p>{message.body}</p>}    {message.imageUrl&&<ChatImage url={message.imageUrl}/>}<footer><time>{new Date(message.createdAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time>{message.fromUserId===user.id&&<span>{message.readAt?'Read':message.deliveredAt?'Delivered':'Sent'}</span>}</footer></div>)}</div>{imagePreview&&<div className="image-preview"><img src={imagePreview} alt="Preview"/><button onClick={()=>setImage(null)} aria-label="Remove image"><X size={14}/></button></div>}<div className="send-row"><input value={body} onChange={event=>setBody(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();void send()}}} placeholder="Write a message…"/><input ref={imageRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" hidden onChange={event=>setImage(event.target.files?.[0]||null)}/><button className="icon-btn" onClick={()=>imageRef.current?.click()} title="Attach image"><ImagePlus size={18}/></button><button className="send-message" onClick={()=>void send()} disabled={!body.trim()&&!image}><Send size={17}/></button></div></>:<div className="chat-empty"><MessageCircle size={34}/><h3>{users.length?'Select a conversation':'No conversations yet'}</h3><p>{users.length?'Choose an accepted connection to start chatting.':'Connect with a developer and accept the request before messaging.'}</p><NavLink to="/developers" className="btn btn-ghost">Discover developers <ArrowUpRight size={14}/></NavLink></div>}</section></div></Page>
 }
 function Profile({user,setUser}:{user:User|null;setUser:(u:User)=>void}){const [name,setName]=useState(user?.name||'');const [bio,setBio]=useState(user?.bio||'');const [skills,setSkills]=useState((user?.skills||[]).join(', '));if(!user)return <Page eyebrow="Profile" title="Create your ZERA identity." caption="Sign in to manage your profile." icon={UserRound}><EmptyState title="Sign in required" text="Create a developer or hire account first."/></Page>;const save=async()=>{try{const u=await api('/api/profile',{method:'PATCH',body:JSON.stringify({name,bio,skills:skills.split(',').map(x=>x.trim()).filter(Boolean)})});setUser(u);localStorage.setItem('zera_user',JSON.stringify(u));alert('Profile saved.')}catch(e:any){alert(e.message)}};return <Page eyebrow="Your identity" title="Build a profile people can trust." caption="Show what you build, what you know and what you are available for." icon={UserRound}><div className="profile-form"><label>Name<input value={name} onChange={e=>setName(e.target.value)}/></label><label>Bio<textarea value={bio} onChange={e=>setBio(e.target.value)}/></label><label>Skills <small>comma separated</small><input value={skills} onChange={e=>setSkills(e.target.value)}/></label><button className="btn btn-primary" onClick={save}>Save profile <CheckCircle2 size={15}/></button></div></Page>}
 function AuthModal({type,site,onClose,onSignedIn}:{type:'developer'|'hire'|'signin';site:any;onClose:()=>void;onSignedIn:(u:User)=>void}){const [mode,setMode]=useState(type);const [name,setName]=useState('');const [username,setUsername]=useState('');const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [notice,setNotice]=useState('');const [submitting,setSubmitting]=useState(false);const submittingRef=useRef(false);const navigate=useNavigate();const submit=async(event:React.FormEvent<HTMLFormElement>)=>{event.preventDefault();if(submittingRef.current)return;submittingRef.current=true;setSubmitting(true);setNotice('');const formData=new FormData(event.currentTarget);const formName=String(formData.get('name')||'');const formUsername=String(formData.get('username')||'');const formEmail=String(formData.get('email')||'');const formPassword=String(formData.get('password')||'');try{if(mode==='signin'){const d=await api('/api/auth/login',{method:'POST',body:JSON.stringify({email:formEmail,password:formPassword})});localStorage.setItem('zera_token',d.token);localStorage.setItem('zera_user',JSON.stringify(d.user));onSignedIn(d.user);if(window.location.pathname==='/'){navigate('/app')}}else{await api('/api/auth/signup',{method:'POST',body:JSON.stringify({name:formName,username:formUsername,email:formEmail,password:formPassword,accountType:mode})});setMode('signin');setName('');setUsername('');setPassword('');setNotice('Account created successfully. Please sign in.')}}catch(e:any){alert(e.message)}finally{submittingRef.current=false;setSubmitting(false)}};return <div className="modal-backdrop" onClick={onClose}><div className="modal glass" onClick={e=>e.stopPropagation()}><button type="button" className="modal-close" onClick={onClose}><X/></button><div className="modal-brand"><LogoMark site={site}/></div><div className="modal-icon">{mode==='hire'?<BriefcaseBusiness/>:<Code2/>}</div><span className="eyebrow">{mode==='signin'?'Welcome back':'Join ZERA HUB'}</span><h2>{mode==='signin'?'Sign in to your workspace':mode==='hire'?'Sign up to Hire':'Sign up as a Developer'}</h2><p>{mode==='signin'?'Continue to messages, community, profile and ZERA AI.':'Create your identity and start connecting inside the ecosystem.'}</p>{notice&&<p className="auth-notice" role="status">{notice}</p>}<form onSubmit={submit} onKeyDown={event=>{if(event.key==='Enter'&&event.target instanceof HTMLInputElement){event.preventDefault();event.currentTarget.requestSubmit()}}}><div className="auth-fields">{mode!=='signin'&&<><input className="modal-input" name="name" autoComplete="name" placeholder="Full name" value={name} onChange={e=>setName(e.target.value)} required/><input className="modal-input" name="username" autoComplete="username" placeholder="Username" value={username} onChange={e=>setUsername(e.target.value)} required/></>}<input className="modal-input" type="email" name="email" autoComplete="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} required/><input className="modal-input" type="password" name="password" autoComplete={mode==='signin'?'current-password':'new-password'} placeholder="Password (8+ characters)" value={password} onChange={e=>setPassword(e.target.value)} minLength={mode==='signin'?undefined:8} required/></div><button className="btn btn-primary modal-submit" type="submit" disabled={submitting}>{submitting?(mode==='signin'?'Signing in…':'Creating account…'):(mode==='signin'?'Sign in':'Sign up')} <ArrowRight size={15}/></button></form><button type="button" className="switch-mode" onClick={()=>{setMode(mode==='signin'?'developer':'signin');setNotice('')}}>{mode==='signin'?'Don’t have an account? Sign Up':'Already have an account? Sign In'}</button></div></div>}

@@ -316,6 +316,9 @@ export function createPlatformRouter({ auth, load, save, publicUser, notifyUser 
     const db = load();
     const user = db.users.find((item) => item.id === req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
+    if (wallpaperImage !== undefined && wallpaperImage && wallpaperImage !== user.preferences?.chatWallpaperImage) {
+      return res.status(400).json({ error: 'Upload a chat wallpaper using the wallpaper upload endpoint' });
+    }
     user.preferences ||= {};
     if (wallpaper !== undefined) user.preferences.chatWallpaper = wallpaper;
     if (wallpaperImage !== undefined) user.preferences.chatWallpaperImage = wallpaperImage;
