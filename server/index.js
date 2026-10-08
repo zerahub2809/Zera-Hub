@@ -37,6 +37,9 @@ const initialData={users:[],messages:[],posts:[],reports:[],moderationActions:[]
 let memoryState=null;
 let mongoStateCollection=null;
 let durableState=null;
+let persistenceQueue=Promise.resolve();
+let pendingPersistenceWrites=0;
+const passwordResetOverrides=new Map();
 fs.mkdirSync(dataDir,{recursive:true});
 fs.mkdirSync(uploadDir,{recursive:true});
 if(dataFile!==legacyDataFile&&!fs.existsSync(dataFile)&&fs.existsSync(legacyDataFile)){
@@ -80,28 +83,173 @@ const load=()=>{
   return memoryState;
 };
 
+async function writeLocalDataAtomically(state){
+  const temporaryFile=path.join(dataDir,`.db.json.${process.pid}.${randomBytes(8).toString('hex')}.tmp`);
+  let replaced=false;
+  try{
+    await fs.promises.writeFile(temporaryFile,JSON.stringify(state,null,2),{flag:'wx'});
+    await fs.promises.rename(temporaryFile,dataFile);
+    replaced=true;
+  }finally{
+    if(!replaced){
+      try{await fs.promises.unlink(temporaryFile)}
+      catch(error){if(error.code!=='ENOENT')console.error('Could not remove temporary database file:',error.message)}
+    }
+  }
+}
+
+function enqueuePersistence(operation){
+  const queued=persistenceQueue.then(operation,operation);
+  persistenceQueue=queued.then(()=>undefined,()=>undefined);
+  return queued;
+}
+
+function applyPasswordResetOverrides(state){
+  for(const [userId,override] of passwordResetOverrides){
+    const user=state.users?.find(account=>account.id===userId);
+    if(!user)continue;
+    user.passwordHash=override.passwordHash;
+    user.sessionVersion=Math.max(Number(user.sessionVersion||0),override.sessionVersion);
+    user._passwordCredentialVersion=Math.max(Number(user._passwordCredentialVersion||0),override.credentialVersion);
+    if(override.consumedTokenHashes.has(user.passwordResetTokenHash)){
+      delete user.passwordResetTokenHash;
+      delete user.passwordResetExpiresAt;
+    }
+  }
+}
+
+function rememberPasswordReset(userId,user,tokenHash){
+  const existing=passwordResetOverrides.get(userId);
+  const consumedTokenHashes=existing?.consumedTokenHashes||new Set();
+  consumedTokenHashes.add(tokenHash);
+  passwordResetOverrides.set(userId,{
+    passwordHash:user.passwordHash,
+    sessionVersion:Number(user.sessionVersion||0),
+    credentialVersion:Number(user._passwordCredentialVersion||0),
+    consumedTokenHashes,
+  });
+}
+
+function matchesResetToken(user,tokenHashHex,now=Date.now()){
+  const expiresAt=Date.parse(user.passwordResetExpiresAt);
+  if(typeof user.passwordResetTokenHash!=='string'||!Number.isFinite(expiresAt)||expiresAt<=now)return false;
+  const savedHash=Buffer.from(user.passwordResetTokenHash,'hex');
+  const suppliedHash=Buffer.from(tokenHashHex,'hex');
+  return savedHash.length===suppliedHash.length&&timingSafeEqual(savedHash,suppliedHash);
+}
+
+function mongoStateReplacementPipeline(state){
+  const replacement={...state,_id:'primary',_localMirrorMigrationComplete:true};
+  const incomingUsers=Array.isArray(state.users)?state.users:[];
+  const users={
+    $map:{
+      input:{$literal:incomingUsers},
+      as:'incomingUser',
+      in:{
+        $let:{
+          vars:{
+            persistedUser:{
+              $arrayElemAt:[
+                {$filter:{
+                  input:{$ifNull:['$users',[]]},
+                  as:'persistedUser',
+                  cond:{$eq:['$$persistedUser.id','$$incomingUser.id']},
+                }},
+                0,
+              ],
+            },
+          },
+          in:{
+            $let:{
+              vars:{
+                persistedCredentialsAreNewer:{
+                  $gt:[
+                    {$ifNull:['$$persistedUser._passwordCredentialVersion',0]},
+                    {$ifNull:['$$incomingUser._passwordCredentialVersion',0]},
+                  ],
+                },
+              },
+              in:{$mergeObjects:[
+                '$$incomingUser',
+                {$cond:['$$persistedCredentialsAreNewer',{
+                  passwordHash:'$$persistedUser.passwordHash',
+                  passwordResetTokenHash:{$ifNull:['$$persistedUser.passwordResetTokenHash',null]},
+                  passwordResetExpiresAt:{$ifNull:['$$persistedUser.passwordResetExpiresAt',null]},
+                  _passwordCredentialVersion:'$$persistedUser._passwordCredentialVersion',
+                },{}]},
+                {sessionVersion:{$max:[
+                  {$ifNull:['$$persistedUser.sessionVersion',0]},
+                  {$ifNull:['$$incomingUser.sessionVersion',0]},
+                ]}},
+              ]},
+            },
+          },
+        },
+      },
+    },
+  };
+  return [{$replaceWith:{$mergeObjects:[{$literal:replacement},{users}]}}];
+}
+
+function synchronizePersistedCredentials(state,persistedState){
+  const persistedUsers=new Map((persistedState.users||[]).map(user=>[user.id,user]));
+  for(const user of state.users||[]){
+    const persisted=persistedUsers.get(user.id);
+    if(!persisted)continue;
+    user.passwordHash=persisted.passwordHash;
+    user.sessionVersion=Math.max(Number(user.sessionVersion||0),Number(persisted.sessionVersion||0));
+    user._passwordCredentialVersion=Number(persisted._passwordCredentialVersion||0);
+    for(const field of ['passwordResetTokenHash','passwordResetExpiresAt']){
+      if(persisted[field]===undefined||persisted[field]===null)delete user[field];
+      else user[field]=persisted[field];
+    }
+  }
+}
+
 const save=async(db)=>{
   const next=JSON.parse(JSON.stringify(db));
-  try{
-    if(mongoStateCollection){
-      await mongoStateCollection.replaceOne({_id:'primary'},{...next,_id:'primary'},{upsert:true});
+  pendingPersistenceWrites++;
+  const persist=async()=>{
+    try{
+      if(mongoStateCollection){
+        await mongoStateCollection.updateOne(
+          {_id:'primary'},
+          mongoStateReplacementPipeline(next),
+          {upsert:true},
+        );
+        let persistedState=null;
+        try{
+          persistedState=await mongoStateCollection.findOne({_id:'primary'},{projection:{users:1}});
+        }catch(err){
+          console.error('Could not refresh persisted credentials after database save:',err.message);
+        }
+        if(persistedState){
+          synchronizePersistedCredentials(next,{users:persistedState.users});
+        }
+        durableState=JSON.parse(JSON.stringify(next));
+        memoryState=next;
+        try{
+          await writeLocalDataAtomically(durableState);
+        }catch(err){
+          console.error('Local database mirror save error:',err.message);
+        }
+        return;
+      }
+      applyPasswordResetOverrides(next);
+      await writeLocalDataAtomically(next);
       durableState=next;
       memoryState=next;
-      try{
-        fs.writeFileSync(dataFile,JSON.stringify(next,null,2));
-      }catch(err){
-        console.error('Local database mirror save error:',err.message);
+    }catch(err){
+      if(pendingPersistenceWrites===1){
+        memoryState=durableState?JSON.parse(JSON.stringify(durableState)):readLocalData();
       }
-      return;
+      console.error('Durable database save failed:',err.message);
+      throw err;
+    }finally{
+      pendingPersistenceWrites--;
     }
-    fs.writeFileSync(dataFile,JSON.stringify(next,null,2));
-    durableState=next;
-    memoryState=next;
-  }catch(err){
-    memoryState=durableState?JSON.parse(JSON.stringify(durableState)):readLocalData();
-    console.error('Durable database save failed:',err.message);
-    throw err;
-  }
+  };
+  return enqueuePersistence(persist);
 };
 
 const app=express();
@@ -438,6 +586,7 @@ app.post('/api/auth/password-reset',passwordResetLimiter,asyncRoute(async(req,re
       const token=randomBytes(32).toString('hex');
       user.passwordResetTokenHash=createHash('sha256').update(token).digest('hex');
       user.passwordResetExpiresAt=new Date(Date.now()+60*60*1000).toISOString();
+      user._passwordCredentialVersion=Number(user._passwordCredentialVersion||0)+1;
       await save(db);
       const frontend=(process.env.CLIENT_URL||'http://localhost:5173').split(',')[0].trim().replace(/\/+$/,'');
       try{
@@ -458,19 +607,68 @@ app.post('/api/auth/password-reset/confirm',asyncRoute(async(req,res)=>{
   if(!token)return res.status(400).json({error:'A valid reset token is required'});
   const passwordError=passwordPolicyError(password);
   if(passwordError)return res.status(400).json({error:passwordError});
-  const tokenHash=createHash('sha256').update(token).digest();
+  const tokenHashHex=createHash('sha256').update(token).digest('hex');
   const db=load();
-  const user=db.users.find(item=>{
-    if(!item.passwordResetTokenHash||!item.passwordResetExpiresAt||Date.parse(item.passwordResetExpiresAt)<=Date.now())return false;
-    const savedHash=Buffer.from(item.passwordResetTokenHash,'hex');
-    return savedHash.length===tokenHash.length&&timingSafeEqual(savedHash,tokenHash);
-  });
+  const user=db.users.find(item=>matchesResetToken(item,tokenHashHex));
   if(!user)return res.status(400).json({error:'This password-reset link is invalid or expired. Request a new link.'});
-  user.passwordHash=await bcrypt.hash(password,12);
-  user.sessionVersion=Number(user.sessionVersion||0)+1;
-  delete user.passwordResetTokenHash;
-  delete user.passwordResetExpiresAt;
-  await save(db);
+  const passwordHash=await bcrypt.hash(password,12);
+  const consumed=await enqueuePersistence(async()=>{
+    const currentUser=memoryState.users.find(item=>item.id===user.id);
+    if(!currentUser||!matchesResetToken(currentUser,tokenHashHex))return false;
+    const nextSessionVersion=Number(currentUser.sessionVersion||0)+1;
+    if(mongoStateCollection){
+      const consumedAt=new Date().toISOString();
+      const result=await mongoStateCollection.updateOne(
+        {
+          _id:'primary',
+          users:{$elemMatch:{
+            id:currentUser.id,
+            passwordResetTokenHash:tokenHashHex,
+            passwordResetExpiresAt:{$gt:consumedAt},
+          }},
+        },
+        {
+          $set:{'users.$.passwordHash':passwordHash},
+          $inc:{
+            'users.$.sessionVersion':1,
+            'users.$._passwordCredentialVersion':1,
+          },
+          $unset:{'users.$.passwordResetTokenHash':'','users.$.passwordResetExpiresAt':''},
+        },
+      );
+      if(result.matchedCount!==1)return false;
+      currentUser.passwordHash=passwordHash;
+      currentUser.sessionVersion=nextSessionVersion;
+      currentUser._passwordCredentialVersion=Number(currentUser._passwordCredentialVersion||0)+1;
+      delete currentUser.passwordResetTokenHash;
+      delete currentUser.passwordResetExpiresAt;
+      durableState=JSON.parse(JSON.stringify(memoryState));
+      try{
+        await writeLocalDataAtomically(durableState);
+      }catch(error){
+        console.error('Local database mirror save error after password reset:',error.message);
+      }
+      return true;
+    }
+    const next=JSON.parse(JSON.stringify(memoryState));
+    const nextUser=next.users.find(item=>item.id===currentUser.id);
+    if(!nextUser||!matchesResetToken(nextUser,tokenHashHex))return false;
+    nextUser.passwordHash=passwordHash;
+    nextUser.sessionVersion=nextSessionVersion;
+    nextUser._passwordCredentialVersion=Number(nextUser._passwordCredentialVersion||0)+1;
+    delete nextUser.passwordResetTokenHash;
+    delete nextUser.passwordResetExpiresAt;
+    await writeLocalDataAtomically(next);
+    currentUser.passwordHash=passwordHash;
+    currentUser.sessionVersion=nextSessionVersion;
+    currentUser._passwordCredentialVersion=Number(currentUser._passwordCredentialVersion||0)+1;
+    delete currentUser.passwordResetTokenHash;
+    delete currentUser.passwordResetExpiresAt;
+    rememberPasswordReset(currentUser.id,currentUser,tokenHashHex);
+    durableState=next;
+    return true;
+  });
+  if(!consumed)return res.status(400).json({error:'This password-reset link is invalid or expired. Request a new link.'});
   res.json({ok:true});
 }));
 app.post('/api/auth/login',loginLimiter,asyncRoute(async(req,res)=>{const {email,password,accountType}=req.body||{};if(accountType!==undefined&&!['developer','hire'].includes(accountType))return res.status(400).json({error:'Account type must be developer or hire'});const db=load();const user=db.users.find(u=>u.email===String(email||'').trim().toLowerCase()||u.username.toLowerCase()===String(email||'').trim().toLowerCase());if(user?.status==='restricted'&&user.restrictedUntil&&Date.parse(user.restrictedUntil)<=Date.now()){user.status='active';user.restrictedUntil=null;await save(db);}if(typeof password!=='string'||!user||!(await bcrypt.compare(password,user.passwordHash)))return res.status(401).json({error:'Invalid email or password'});if(user.status!=='active')return res.status(403).json({error:accountStatusMessage(user.status)});if(accountType&&accountTypeOf(user)!==accountType)return res.status(403).json({error:`This account is registered as a ${accountTypeOf(user)==='hire'?'hirer':'developer'}. Sign in through the matching account area.`});res.json({token:tokenFor(user),user:publicUser(user)});}));
@@ -726,21 +924,31 @@ async function startServer(){
       mongoStateCollection=connection.db.collection('zera_hub_state');
       const storedState=await mongoStateCollection.findOne({_id:'primary'});
       if(storedState){
-        const {_id,...state}=storedState;
+        const {_id,_localMirrorMigrationComplete,...state}=storedState;
         const local=readLocalData();
-        memoryState={
-          ...initialData,
-          ...local,
-          ...state,
-          siteConfig:{...initialData.siteConfig,...(local.siteConfig||{}),...(state.siteConfig||{})},
-        };
-        for(const field of ['users','messages','posts','reports','moderationActions','notifications','pushSubscriptions','connections','jobs','applications','aiConversations','adminLoginActivity','adminAuditLogs']){
-          memoryState[field]=mergeRecords(local[field],state[field]);
+        if(_localMirrorMigrationComplete===true){
+          memoryState={
+            ...initialData,
+            ...state,
+            siteConfig:{...initialData.siteConfig,...(state.siteConfig||{})},
+          };
+        }else{
+          memoryState={
+            ...initialData,
+            ...local,
+            ...state,
+            siteConfig:{...initialData.siteConfig,...(local.siteConfig||{}),...(state.siteConfig||{})},
+          };
+          for(const field of ['users','messages','posts','reports','moderationActions','notifications','pushSubscriptions','connections','jobs','applications','aiConversations','adminLoginActivity','adminAuditLogs']){
+            memoryState[field]=mergeRecords(local[field],state[field]);
+          }
+          durableState=JSON.parse(JSON.stringify(memoryState));
+          await save(memoryState);
         }
         durableState=JSON.parse(JSON.stringify(memoryState));
-        await save(memoryState);
       }else{
-        await mongoStateCollection.insertOne({...memoryState,_id:'primary'});
+        await mongoStateCollection.insertOne({...memoryState,_id:'primary',_localMirrorMigrationComplete:true});
+        durableState=JSON.parse(JSON.stringify(memoryState));
       }
     }
     let migratedAccountTypes=false;
