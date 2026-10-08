@@ -18,8 +18,25 @@ import './theme.css';
 import './chat.css';
 
 const API=import.meta.env.VITE_API_URL||(import.meta.env.PROD?'https://zera-hub-api.onrender.com':'http://localhost:4000');
+const PUBLIC_SITE_URL='https://zera-hub0.vercel.app';
 const social={facebook:'https://www.facebook.com/share/1BDT7JfvXm/',instagram:'https://www.instagram.com/zerahub2026/',x:'https://x.com/zerahub2809'};
-function setPageMetadata(title:string,description:string){document.title=`${title} · ZERA HUB`;let meta=document.querySelector<HTMLMetaElement>('meta[name="description"]');if(!meta){meta=document.createElement('meta');meta.name='description';document.head.append(meta);}meta.content=description;}
+function setPageMetadata(title:string,description:string){
+  document.title=`${title} · ZERA HUB`;
+  const setMeta=(selector:string,attribute:'name'|'property',key:string,content:string)=>{
+    let meta=document.querySelector<HTMLMetaElement>(selector);
+    if(!meta){meta=document.createElement('meta');meta.setAttribute(attribute,key);document.head.append(meta);}
+    meta.content=content;
+  };
+  setMeta('meta[name="description"]','name','description',description);
+  setMeta('meta[property="og:title"]','property','og:title',`${title} · ZERA HUB`);
+  setMeta('meta[property="og:description"]','property','og:description',description);
+  setMeta('meta[property="og:url"]','property','og:url',`${PUBLIC_SITE_URL}${window.location.pathname}`);
+  setMeta('meta[name="twitter:title"]','name','twitter:title',`${title} · ZERA HUB`);
+  setMeta('meta[name="twitter:description"]','name','twitter:description',description);
+  let canonical=document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+  if(!canonical){canonical=document.createElement('link');canonical.rel='canonical';document.head.append(canonical);}
+  canonical.href=`${PUBLIC_SITE_URL}${window.location.pathname}`;
+}
 
 type User={id:string;name:string;username:string;role:string;accountType:string;bio?:string;skills?:string[];avatar?:string;status:string;verified?:boolean;online?:boolean;lastSeenAt?:string|null};
 function isUser(value:unknown):value is User{return Boolean(value&&typeof value==='object'&&'id'in value&&typeof value.id==='string'&&'name'in value&&typeof value.name==='string'&&'username'in value&&typeof value.username==='string'&&'role'in value&&typeof value.role==='string'&&'accountType'in value&&typeof value.accountType==='string'&&'status'in value&&typeof value.status==='string')}
@@ -237,6 +254,7 @@ function App(){
   const [aiContext,setAIContext]=useState('');
   const [site,setSite]=useState<any>(null);
   const [user,setUser]=useState<User|null>(null);
+  const [theme,setTheme]=useState<Theme>(()=>document.documentElement.dataset.theme==='light'?'light':'dark');
   const [sessionReady,setSessionReady]=useState(()=>!localStorage.getItem('zera_token'));
   const [sessionNotice,setSessionNotice]=useState('');
   const location=useLocation();
@@ -246,6 +264,24 @@ function App(){
   const isAdminRoute=location.pathname==='/admindev2809';
   const isMessagesRoute=location.pathname==='/messages';
   const isAIPage=location.pathname==='/ai';
+  useEffect(()=>{
+    const privateRoutes=['/app','/messages','/notifications','/profile','/admindev2809','/reset-password'];
+    const privateRoute=privateRoutes.some(route=>location.pathname===route||location.pathname.startsWith(`${route}/`));
+    let robots=document.querySelector<HTMLMetaElement>('meta[name="robots"]');
+    if(!robots){robots=document.createElement('meta');robots.name='robots';document.head.append(robots);}
+    robots.content=privateRoute?'noindex, nofollow':'index, follow';
+    let canonical=document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if(!canonical){canonical=document.createElement('link');canonical.rel='canonical';document.head.append(canonical);}
+    canonical.href=`${PUBLIC_SITE_URL}${location.pathname}`;
+  },[location.pathname]);
+  const changeTheme=(next:Theme)=>{
+    setTheme(next);
+    applyTheme(next);
+    if(user){
+      api('/api/platform/profile/preferences',{method:'PATCH',body:JSON.stringify({theme:next})})
+        .catch(error=>console.error('Could not save account theme preference:',error));
+    }
+  };
 
   useLayoutEffect(()=>{
     const previousLocation=activeLocationRef.current;
@@ -352,9 +388,9 @@ function App(){
   useEffect(()=>{
     if(!user)return;
     apiTyped<ChatPreferencesResponse>('/api/platform/profile/preferences')
-      .then(preferences=>{if(preferences.theme==='light'||preferences.theme==='dark')applyTheme(preferences.theme);if(typeof preferences.notificationSound==='boolean'){localStorage.setItem('zera_notification_sound',preferences.notificationSound?'on':'off');window.dispatchEvent(new Event('zera-notification-sound-change'))}})
+      .then(preferences=>{if(preferences.theme==='light'||preferences.theme==='dark'){setTheme(preferences.theme);applyTheme(preferences.theme)}if(typeof preferences.notificationSound==='boolean'){localStorage.setItem('zera_notification_sound',preferences.notificationSound?'on':'off');window.dispatchEvent(new Event('zera-notification-sound-change'))}})
       .catch(error=>console.error('Could not load account theme preference:',error));
-  },[user]);
+  },[user?.id]);
 
   useEffect(()=>{
     if(!ai)return;
@@ -372,7 +408,7 @@ function App(){
   return <>
     <PresenceHeartbeat/>
     <NotificationSoundMonitor user={user}/>
-    {!isAdminRoute&&!isMessagesRoute&&<Header site={site} user={user} sessionReady={sessionReady} onAuth={setAuth}/>}
+    {!isAdminRoute&&!isMessagesRoute&&<Header site={site} user={user} sessionReady={sessionReady} theme={theme} onThemeChange={changeTheme} onAuth={setAuth}/>}
     {sessionNotice&&<div className="session-expired-notice" role="alert">{sessionNotice}<button type="button" onClick={()=>setSessionNotice('')}>Dismiss</button></div>}
     <Routes>
       <Route path="/" element={<Home onAuth={setAuth} onAI={()=>setAI(true)}/>}/>
@@ -390,7 +426,7 @@ function App(){
       <Route path="/notifications" element={<NotificationsPage user={user}/>}/>
       <Route path="/reset-password" element={<PasswordResetPage/>}/>
       <Route path="/profile/*" element={user?.accountType==='hire'?<Navigate to="/app" replace/>:<ProfileEditor user={user} onAuth={setAuth} onUserUpdated={updated=>setUser(current=>current?{...current,...updated}:current)}/>}/>
-      <Route path="/admindev2809" element={<AdminControlCenter/>}/>
+      <Route path="/admindev2809" element={<AdminControlCenter theme={theme} onThemeChange={changeTheme}/>}/>
       <Route path="*" element={<NotFound/>}/>
     </Routes>
     {!isAdminRoute&&!isMessagesRoute&&!isAIPage&&<Footer site={site}/>}
@@ -414,7 +450,7 @@ function LiveFeed({announcement}:{announcement:string}){
   </div>;
 }
 
-function Header({site,user,sessionReady,onAuth}:{site:any;user:User|null;sessionReady:boolean;onAuth:(x:any)=>void}){
+function Header({site,user,sessionReady,theme,onThemeChange,onAuth}:{site:any;user:User|null;sessionReady:boolean;theme:Theme;onThemeChange:(theme:Theme)=>void;onAuth:(x:any)=>void}){
   const [open,setOpen]=useState(false);
   const [unreadNotifs,setUnreadNotifs]=useState(0);
   const [unreadMsgs,setUnreadMsgs]=useState(0);
@@ -463,11 +499,17 @@ function Header({site,user,sessionReady,onAuth}:{site:any;user:User|null;session
     };
   },[token,location.pathname]);
 
-  const signOut=()=>{
-    localStorage.removeItem('zera_token');
-    localStorage.removeItem('zera_user');
-    window.dispatchEvent(new Event('zera-authenticated'));
-    window.location.assign('/');
+  const signOut=async()=>{
+    try{
+      if(localStorage.getItem('zera_token'))await api('/api/auth/logout',{method:'POST',body:'{}'});
+    }catch(error){
+      console.error('Could not invalidate the server session during sign out:',error);
+    }finally{
+      localStorage.removeItem('zera_token');
+      localStorage.removeItem('zera_user');
+      window.dispatchEvent(new Event('zera-authenticated'));
+      window.location.assign('/');
+    }
   };
 
   const sharedAuthenticatedNav = [
@@ -503,6 +545,9 @@ function Header({site,user,sessionReady,onAuth}:{site:any;user:User|null;session
           ) : null}
         </nav>
         <div className="header-actions">
+          <button type="button" className="icon-btn" onClick={()=>onThemeChange(theme==='dark'?'light':'dark')} aria-label={`Switch to ${theme==='dark'?'light':'dark'} theme`} title={`Switch to ${theme==='dark'?'light':'dark'} theme`}>
+            {theme==='dark'?<Sun size={18}/>:<Moon size={18}/>}
+          </button>
           {authenticated && currentUser ? (
             <>
               <NavLink className="header-user-pill hide-mobile" to={currentUser.accountType==='hire'?'/app':'/profile'} title={currentUser.accountType==='hire'?'View your account':'View & Edit Profile'}>

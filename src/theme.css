@@ -29,14 +29,14 @@ html[data-theme="dark"] {
   color-scheme: dark;
   --primary: #8C6A43;
   --primary-hover: #705333;
-  --secondary: #6B6B6B;
+  --secondary: #A5AEBC;
   --accent: #8C6A43;
   --page-background: #111315;
   --surface: #111315;
   --surface-elevated: #2A2A28;
   --text-primary: #F7F7F5;
-  --text-secondary: #6B6B6B;
-  --text-muted: #6B6B6B;
+  --text-secondary: #A5AEBC;
+  --text-muted: #A5AEBC;
   --border: #2A2A28;
   --input-background: #2A2A28;
   --focus-ring: rgba(140, 106, 67, .42);
@@ -56,6 +56,17 @@ html[data-theme="light"] body {
   background: var(--page-bg);
   color: var(--text-primary);
   transition: background-color .2s ease, color .2s ease;
+}
+
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder {
+  color: #A5AEBC;
+  opacity: 1;
+}
+
+:where(a,button,input,textarea,select,[tabindex]):focus-visible {
+  outline: 2px solid #8C6A43;
+  outline-offset: 3px;
 }
 
 html[data-theme="light"] .header {

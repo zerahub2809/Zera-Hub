@@ -54,6 +54,27 @@
   min-width: 0;
 }
 
+.password-strength {
+  display: grid;
+  gap: 4px;
+  grid-column: 1 / -1;
+  color: #f6c453;
+  font-size: 11px;
+}
+
+.password-strength-fair {
+  color: #f6c453;
+}
+
+.password-strength-strong {
+  color: #55c99a;
+}
+
+.password-strength small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .auth-fields > .auth-password-field {
   grid-column: 1 / -1;
 }

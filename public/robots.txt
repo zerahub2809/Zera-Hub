@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /messages
+Disallow: /notifications
+Disallow: /profile
+Disallow: /admindev2809
+Disallow: /reset-password
+
+Sitemap: https://zera-hub0.vercel.app/sitemap.xml

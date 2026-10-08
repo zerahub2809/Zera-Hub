@@ -25,6 +25,8 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  Sun,
+  Moon,
   Sparkles,
   Users,
   X,
@@ -84,6 +86,7 @@ type AdminData = {
 };
 
 type SecurityData = { loginActivity: any[]; auditLogs: any[] };
+type Theme = 'light' | 'dark';
 type Section =
   | 'Overview' | 'Users' | 'Developers' | 'Hirers' | 'Projects' | 'Jobs'
   | 'Community' | 'Reports' | 'Moderation' | 'Verification' | 'ZERA AI' | 'Website'
@@ -129,7 +132,7 @@ function formatDate(value?: string) {
   return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleString();
 }
 
-export default function AdminControlCenter() {
+export default function AdminControlCenter({ theme, onThemeChange }: { theme: Theme; onThemeChange: (theme: Theme) => void }) {
   const [token, setToken] = useState(() => localStorage.getItem('zera_admin'));
   const [email, setEmail] = useState(ADMIN_EMAIL);
   const [password, setPassword] = useState('');
@@ -391,13 +394,20 @@ export default function AdminControlCenter() {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    let logoutError = '';
+    try {
+      if (token) await request('/api/auth/logout', token, { method: 'POST', body: JSON.stringify({}) });
+    } catch (cause) {
+      console.error('Could not invalidate the admin session during sign out:', cause);
+      logoutError = 'You were signed out on this device, but the server could not invalidate the admin session.';
+    }
     localStorage.removeItem('zera_admin');
     if (localStorage.getItem('zera_token') === token) localStorage.removeItem('zera_token');
     setToken(null);
     setData(null);
     setSecurity(null);
-    setError('');
+    setError(logoutError);
     setActiveSection('Overview');
   };
 
@@ -599,7 +609,7 @@ export default function AdminControlCenter() {
       </aside>
       {sidebarOpen && <button className="admin-sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" />}
       <div className="admin-main">
-        <header className="admin-topbar"><div className="admin-topbar-left"><button className="admin-menu-button" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={19} /></button><div><span className="admin-breadcrumb">ZERA HUB <b>/</b> {activeSection}</span><small>Operations and platform health</small></div></div><div className="admin-top-actions"><span className="admin-secure-badge"><ShieldCheck size={14} /> SECURE SESSION</span><button className="admin-icon-button" onClick={refresh} aria-label="Refresh dashboard" disabled={loading}><RefreshCw size={16} /></button><button className="admin-profile-button" onClick={logout}><span className="admin-profile-avatar">Z</span><span><b>Administrator</b><small>{ADMIN_EMAIL}</small></span><LogOut size={15} /></button></div></header>
+        <header className="admin-topbar"><div className="admin-topbar-left"><button className="admin-menu-button" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={19} /></button><div><span className="admin-breadcrumb">ZERA HUB <b>/</b> {activeSection}</span><small>Operations and platform health</small></div></div><div className="admin-top-actions"><span className="admin-secure-badge"><ShieldCheck size={14} /> SECURE SESSION</span><button className="admin-icon-button" onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button><button className="admin-icon-button" onClick={refresh} aria-label="Refresh dashboard" disabled={loading}><RefreshCw size={16} /></button><button className="admin-profile-button" onClick={logout}><span className="admin-profile-avatar">Z</span><span><b>Administrator</b><small>{ADMIN_EMAIL}</small></span><LogOut size={15} /></button></div></header>
         <div className="admin-page-content">
           <div className="admin-page-heading"><div><span className="admin-eyebrow">PRIVATE ADMINISTRATION</span><h1>{activeSection}</h1><p>{activeSection === 'Overview' ? 'A clear view of your ZERA HUB platform.' : `Manage ${activeSection.toLowerCase()} using secured, backend-backed controls.`}</p></div></div>
           {error && data && <div className="admin-alert error"><AlertTriangle size={16} />{error}<button onClick={() => setError('')} aria-label="Dismiss error"><X size={15} /></button></div>}

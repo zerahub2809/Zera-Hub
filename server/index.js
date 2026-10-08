@@ -106,6 +106,7 @@ const save=async(db)=>{
 
 const app=express();
 const httpServer=createServer(app);
+app.set('trust proxy',1);
 
 const configuredOrigins=new Set([
   'http://localhost:5173',
@@ -136,6 +137,29 @@ let webPush=null;
 try{webPush=(await import('web-push')).default;}catch(error){/* optional */}
 if(vapidPublicKey&&vapidPrivateKey&&webPush)webPush.setVapidDetails(process.env.VAPID_SUBJECT||'mailto:zerahub@outlook.com',vapidPublicKey,vapidPrivateKey);
 const asyncRoute=handler=>(req,res,next)=>Promise.resolve(handler(req,res,next)).catch(next);
+const commonPasswords=new Set([
+  'password123!',
+  'password1234!',
+  'p@ssword123!',
+  'p@ssw0rd123!',
+  'qwerty123!',
+  'qwertyuiop123!',
+  'welcome123!',
+  'admin123456!',
+  'letmein123!',
+  'changeme123!',
+]);
+function passwordPolicyError(password){
+  if(typeof password!=='string')return 'Password is required.';
+  const missing=[];
+  if(password.length<12)missing.push('at least 12 characters');
+  if(!/[a-z]/.test(password))missing.push('a lowercase letter');
+  if(!/[A-Z]/.test(password))missing.push('an uppercase letter');
+  if(!/\d/.test(password))missing.push('a number');
+  if(!/[^A-Za-z0-9]/.test(password))missing.push('a special character');
+  if(commonPasswords.has(password.toLowerCase()))missing.push('a less common password');
+  return missing.length?`Password must include ${missing.join(', ')}.`:null;
+}
 app.use(helmet({crossOriginResourcePolicy:{policy:'cross-origin'},crossOriginOpenerPolicy:false}));
 app.use(cors({origin:allowClientOrigin,credentials:true,methods:['GET','POST','PUT','PATCH','DELETE','OPTIONS'],allowedHeaders:['Content-Type','Authorization','Accept','X-Requested-With','Idempotency-Key']}));
 app.options('*',cors({origin:allowClientOrigin,credentials:true}));
@@ -152,8 +176,19 @@ app.use('/uploads',express.static(uploadDir,{setHeaders:(res,filePath)=>{
   }[path.extname(filePath).toLowerCase()];
   if(contentType)res.setHeader('Content-Type',contentType);
 }}));
-app.use('/assets',express.static(root));
+const rootImageAssets=express.static(root,{dotfiles:'deny',fallthrough:true,index:false});
+app.use('/assets',(req,res,next)=>{
+  let assetName;
+  try{assetName=decodeURIComponent(req.path.slice(1))}
+  catch{return res.sendStatus(400)}
+  if(!assetName||assetName!==path.basename(assetName)||assetName.includes('..')||! /^[A-Za-z0-9][A-Za-z0-9 ._()-]*\.(?:png|jpe?g|gif|webp|avif|svg)$/i.test(assetName))return next();
+  rootImageAssets(req,res,next);
+});
 const authLimiter=rateLimit({windowMs:15*60*1000,max:200,standardHeaders:true,legacyHeaders:false});
+const loginLimiter=rateLimit({windowMs:15*60*1000,max:20,standardHeaders:true,legacyHeaders:false,message:{error:'Too many sign-in attempts. Please wait before trying again.'}});
+const signupLimiter=rateLimit({windowMs:60*60*1000,max:10,standardHeaders:true,legacyHeaders:false,message:{error:'Too many account-creation attempts. Please try again later.'}});
+const passwordResetLimiter=rateLimit({windowMs:15*60*1000,max:5,standardHeaders:true,legacyHeaders:false,message:{error:'Too many password-reset requests. Please wait before trying again.'}});
+const adminLoginLimiter=rateLimit({windowMs:15*60*1000,max:10,standardHeaders:true,legacyHeaders:false,message:{error:'Too many admin sign-in attempts. Please wait before trying again.'}});
 const aiLimiter=rateLimit({windowMs:15*60*1000,max:100,standardHeaders:true,legacyHeaders:false});
 const reportLimiter=rateLimit({windowMs:15*60*1000,max:30,standardHeaders:true,legacyHeaders:false});
 app.use('/api/auth',authLimiter);
@@ -174,18 +209,46 @@ app.use('/api/messages',(req,res,next)=>auth(req,res,()=>{
   next();
 }));
 
-function tokenFor(user){return jwt.sign({id:user.id,role:user.role||'user',email:user.role==='admin'?user.email:undefined},JWT_SECRET,{expiresIn:'7d'});}
+function tokenFor(user){return jwt.sign({id:user.id,role:user.role||'user',email:user.role==='admin'?user.email:undefined,sessionVersion:Number(user.sessionVersion||0)},JWT_SECRET,{expiresIn:'7d'});}
 function accountTypeOf(user){return user.accountType==='hire'?'hire':'developer';}
 function accountStatusMessage(status){return status==='restricted'?'Your account is temporarily restricted.':status==='disabled'?'Your account has been disabled.':status==='banned'?'Your account has been banned.':status==='blocked'?'Your account has been blocked.':'Your account has been suspended.';}
-function auth(req,res,next){const raw=req.headers.authorization||'';const token=raw.startsWith('Bearer ')?raw.slice(7):null;if(!token)return res.status(401).json({error:'Authentication required'});try{req.user=jwt.verify(token,JWT_SECRET);if(req.user.role!=='admin'){const db=load();const account=db.users.find(user=>user.id===req.user.id);if(!account)return res.status(401).json({error:'Account session is no longer valid'});req.user.accountType=accountTypeOf(account);if(account.status==='restricted'&&account.restrictedUntil&&Date.parse(account.restrictedUntil)<=Date.now()){account.status='active';account.restrictedUntil=null;save(db).then(()=>next(),next);return;}if(account.status!=='active')return res.status(403).json({error:accountStatusMessage(account.status)});}next();}catch(error){if(error?.name==='JsonWebTokenError'||error?.name==='TokenExpiredError')return res.status(401).json({error:'Invalid or expired session'});next(error);}}
+function auth(req,res,next){
+  const raw=req.headers.authorization||'';
+  const token=raw.startsWith('Bearer ')?raw.slice(7):null;
+  if(!token)return res.status(401).json({error:'Authentication required'});
+  try{
+    req.user=jwt.verify(token,JWT_SECRET);
+    const db=load();
+    if(req.user.role==='admin'){
+      if(Number(req.user.sessionVersion||0)!==Number(db.adminSessionVersion||0))return res.status(401).json({error:'Admin session is no longer valid'});
+    }else{
+      const account=db.users.find(user=>user.id===req.user.id);
+      if(!account)return res.status(401).json({error:'Account session is no longer valid'});
+      if(Number(req.user.sessionVersion||0)!==Number(account.sessionVersion||0))return res.status(401).json({error:'Account session is no longer valid'});
+      req.user.accountType=accountTypeOf(account);
+      if(account.status==='restricted'&&account.restrictedUntil&&Date.parse(account.restrictedUntil)<=Date.now()){
+        account.status='active';
+        account.restrictedUntil=null;
+        save(db).then(()=>next(),next);
+        return;
+      }
+      if(account.status!=='active')return res.status(403).json({error:accountStatusMessage(account.status)});
+    }
+    next();
+  }catch(error){
+    if(error?.name==='JsonWebTokenError'||error?.name==='TokenExpiredError')return res.status(401).json({error:'Invalid or expired session'});
+    next(error);
+  }
+}
 function areConnected(firstId,secondId){return (load().connections||[]).some(connection=>connection.status==='accepted'&&((connection.requesterId===firstId&&connection.recipientId===secondId)||(connection.requesterId===secondId&&connection.recipientId===firstId)));}
 io.use((socket,next)=>{
   try{
     const claims=jwt.verify(socket.handshake.auth?.token,JWT_SECRET);
     if(typeof claims.id!=='string'||claims.role==='admin')return next(new Error('Authentication required'));
     const account=load().users.find(user=>user.id===claims.id&&user.status==='active');
-    if(!account)return next(new Error('Account session is no longer valid'));
+    if(!account||Number(claims.sessionVersion||0)!==Number(account.sessionVersion||0))return next(new Error('Account session is no longer valid'));
     socket.data.userId=account.id;
+    socket.data.sessionVersion=Number(account.sessionVersion||0);
     next();
   }catch{
     next(new Error('Authentication required'));
@@ -201,8 +264,9 @@ io.on('connection',(socket)=>{
       save(db).catch(error=>console.error('Could not restore an expired account restriction:',error.message));
       return;
     }
-    if(account?.status==='active')return;
-    socket.emit('session:revoked',{message:account?accountStatusMessage(account.status):'Your account session is no longer valid. Please sign in again.'});
+    if(account?.status==='active'&&Number(account.sessionVersion||0)===socket.data.sessionVersion)return;
+    const message=account?.status==='active'?'Your account session has ended. Please sign in again.':account?accountStatusMessage(account.status):'Your account session is no longer valid. Please sign in again.';
+    socket.emit('session:revoked',{message});
     socket.disconnect(true);
   },15000);
   socket.once('disconnect',()=>clearInterval(socket.data.accountStatusTimer));
@@ -363,8 +427,8 @@ async function sendPasswordResetEmail(email,link){
     socket.destroy();
   }
 }
-app.post('/api/auth/signup',asyncRoute(async(req,res)=>{const {name,username,email,password,accountType='developer'}=req.body||{};if(!name||!username||!email||!password)return res.status(400).json({error:'Name, username, email and password are required'});if(!['developer','hire'].includes(accountType))return res.status(400).json({error:'Account type must be developer or hire'});if(password.length<8)return res.status(400).json({error:'Password must be at least 8 characters'});const db=load();if(db.users.some(u=>u.email.toLowerCase()===email.toLowerCase()||u.username.toLowerCase()===username.toLowerCase()))return res.status(409).json({error:'An account with those details already exists'});const user={id:crypto.randomUUID(),name:name.trim(),username:username.trim().replace(/^@/,''),email:email.trim().toLowerCase(),passwordHash:await bcrypt.hash(password,12),accountType,role:'user',status:'active',verified:false,bio:'',skills:[],createdAt:new Date().toISOString()};db.users.push(user);await save(db);res.status(201).json({token:tokenFor(user),user:publicUser(user)});}));
-app.post('/api/auth/password-reset',asyncRoute(async(req,res)=>{
+app.post('/api/auth/signup',signupLimiter,asyncRoute(async(req,res)=>{const {name,username,email,password,accountType='developer'}=req.body||{};if(!name||!username||!email||!password)return res.status(400).json({error:'Name, username, email and password are required'});if(!['developer','hire'].includes(accountType))return res.status(400).json({error:'Account type must be developer or hire'});const passwordError=passwordPolicyError(password);if(passwordError)return res.status(400).json({error:passwordError});const db=load();if(db.users.some(u=>u.email.toLowerCase()===email.toLowerCase()||u.username.toLowerCase()===username.toLowerCase()))return res.status(409).json({error:'An account with those details already exists'});const user={id:crypto.randomUUID(),name:name.trim(),username:username.trim().replace(/^@/,''),email:email.trim().toLowerCase(),passwordHash:await bcrypt.hash(password,12),accountType,role:'user',status:'active',verified:false,bio:'',skills:[],createdAt:new Date().toISOString()};db.users.push(user);await save(db);res.status(201).json({token:tokenFor(user),user:publicUser(user)});}));
+app.post('/api/auth/password-reset',passwordResetLimiter,asyncRoute(async(req,res)=>{
   if(!process.env.GMAIL_OAUTH_CLIENT_ID||!process.env.GMAIL_OAUTH_CLIENT_SECRET)return res.status(503).json({error:'Gmail API OAuth client is not configured on this server'});
   const email=String(req.body?.email||'').trim().toLowerCase();
   if(email&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
@@ -383,7 +447,6 @@ app.post('/api/auth/password-reset',asyncRoute(async(req,res)=>{
         delete user.passwordResetExpiresAt;
         await save(db);
         console.error('Password reset email delivery failed:',error.message);
-        return res.status(502).json({error:'Password reset email could not be sent. Please try again later.'});
       }
     }
   }
@@ -392,7 +455,9 @@ app.post('/api/auth/password-reset',asyncRoute(async(req,res)=>{
 app.post('/api/auth/password-reset/confirm',asyncRoute(async(req,res)=>{
   const token=typeof req.body?.token==='string'?req.body.token:'';
   const password=typeof req.body?.password==='string'?req.body.password:'';
-  if(!token||password.length<8)return res.status(400).json({error:'A valid reset token and password of at least 8 characters are required'});
+  if(!token)return res.status(400).json({error:'A valid reset token is required'});
+  const passwordError=passwordPolicyError(password);
+  if(passwordError)return res.status(400).json({error:passwordError});
   const tokenHash=createHash('sha256').update(token).digest();
   const db=load();
   const user=db.users.find(item=>{
@@ -402,12 +467,24 @@ app.post('/api/auth/password-reset/confirm',asyncRoute(async(req,res)=>{
   });
   if(!user)return res.status(400).json({error:'This password-reset link is invalid or expired. Request a new link.'});
   user.passwordHash=await bcrypt.hash(password,12);
+  user.sessionVersion=Number(user.sessionVersion||0)+1;
   delete user.passwordResetTokenHash;
   delete user.passwordResetExpiresAt;
   await save(db);
   res.json({ok:true});
 }));
-app.post('/api/auth/login',asyncRoute(async(req,res)=>{const {email,password,accountType}=req.body||{};if(accountType!==undefined&&!['developer','hire'].includes(accountType))return res.status(400).json({error:'Account type must be developer or hire'});const db=load();const user=db.users.find(u=>u.email===String(email||'').trim().toLowerCase()||u.username.toLowerCase()===String(email||'').trim().toLowerCase());if(user?.status==='restricted'&&user.restrictedUntil&&Date.parse(user.restrictedUntil)<=Date.now()){user.status='active';user.restrictedUntil=null;await save(db);}if(!user||!(await bcrypt.compare(password||'',user.passwordHash)))return res.status(401).json({error:'Invalid email or password'});if(user.status!=='active')return res.status(403).json({error:accountStatusMessage(user.status)});if(accountType&&accountTypeOf(user)!==accountType)return res.status(403).json({error:`This account is registered as a ${accountTypeOf(user)==='hire'?'hirer':'developer'}. Sign in through the matching account area.`});res.json({token:tokenFor(user),user:publicUser(user)});}));
+app.post('/api/auth/login',loginLimiter,asyncRoute(async(req,res)=>{const {email,password,accountType}=req.body||{};if(accountType!==undefined&&!['developer','hire'].includes(accountType))return res.status(400).json({error:'Account type must be developer or hire'});const db=load();const user=db.users.find(u=>u.email===String(email||'').trim().toLowerCase()||u.username.toLowerCase()===String(email||'').trim().toLowerCase());if(user?.status==='restricted'&&user.restrictedUntil&&Date.parse(user.restrictedUntil)<=Date.now()){user.status='active';user.restrictedUntil=null;await save(db);}if(typeof password!=='string'||!user||!(await bcrypt.compare(password,user.passwordHash)))return res.status(401).json({error:'Invalid email or password'});if(user.status!=='active')return res.status(403).json({error:accountStatusMessage(user.status)});if(accountType&&accountTypeOf(user)!==accountType)return res.status(403).json({error:`This account is registered as a ${accountTypeOf(user)==='hire'?'hirer':'developer'}. Sign in through the matching account area.`});res.json({token:tokenFor(user),user:publicUser(user)});}));
+app.post('/api/auth/logout',auth,asyncRoute(async(req,res)=>{
+  const db=load();
+  if(req.user.role==='admin')db.adminSessionVersion=Number(db.adminSessionVersion||0)+1;
+  else{
+    const account=db.users.find(user=>user.id===req.user.id);
+    if(!account)return res.status(401).json({error:'Account session is no longer valid'});
+    account.sessionVersion=Number(account.sessionVersion||0)+1;
+  }
+  await save(db);
+  res.json({ok:true});
+}));
 app.get('/api/users',auth,(req,res)=>{const db=load();res.json(db.users.filter(u=>u.status==='active').map(publicUser));});
 app.get('/api/users/:id',auth,(req,res)=>{const u=load().users.find(x=>x.id===req.params.id);if(!u)return res.status(404).json({error:'User not found'});res.json(publicUser(u));});
 app.patch('/api/profile',auth,asyncRoute(async(req,res)=>{const db=load();const u=db.users.find(x=>x.id===req.user.id);if(!u)return res.status(404).json({error:'User not found'});for(const k of ['name','bio','skills','avatar'])if(req.body[k]!==undefined)u[k]=req.body[k];await save(db);res.json(publicUser(u));}));
@@ -599,7 +676,7 @@ app.post('/api/messages/:userId/voice',auth,receiveVoiceUpload,asyncRoute(async(
   res.status(201).json({...message,voiceSizeBytes:storedBytes,voiceSha256:storedHash});
 }));
 app.use('/api/community',createCommunityRouter({auth,load,save,publicUser,upload:communityUpload,riskText}));
-app.post('/api/admin/login',asyncRoute(async(req,res)=>{const {email,password}=req.body||{};const attemptedEmail=String(email||'').slice(0,254);const adminEmail=attemptedEmail.toLowerCase();if(!process.env.ADMIN_EMAIL||!process.env.ADMIN_PASSWORD)return res.status(503).json({error:'Admin credentials are not configured on the server'});const db=load();db.adminLoginActivity||=[];if(adminEmail!==process.env.ADMIN_EMAIL.toLowerCase()||password!==process.env.ADMIN_PASSWORD){db.adminLoginActivity.push({id:crypto.randomUUID(),attemptedEmail,success:false,createdAt:new Date().toISOString()});if(db.adminLoginActivity.length>200)db.adminLoginActivity.shift();await save(db);return res.status(401).json({error:'Invalid admin credentials'});}db.adminLoginActivity.push({id:crypto.randomUUID(),adminEmail:process.env.ADMIN_EMAIL,success:true,createdAt:new Date().toISOString()});if(db.adminLoginActivity.length>200)db.adminLoginActivity.shift();await save(db);const user={id:'admin',role:'admin',email:process.env.ADMIN_EMAIL};res.json({token:tokenFor(user),user:{id:'admin',email:process.env.ADMIN_EMAIL,role:'admin'}});}));
+app.post('/api/admin/login',adminLoginLimiter,asyncRoute(async(req,res)=>{const {email,password}=req.body||{};const attemptedEmail=String(email||'').slice(0,254);const adminEmail=attemptedEmail.toLowerCase();if(!process.env.ADMIN_EMAIL||!process.env.ADMIN_PASSWORD)return res.status(503).json({error:'Admin credentials are not configured on the server'});const db=load();db.adminLoginActivity||=[];const expectedPassword=Buffer.from(process.env.ADMIN_PASSWORD);const providedPassword=Buffer.from(typeof password==='string'?password:'');const passwordMatches=providedPassword.length===expectedPassword.length&&timingSafeEqual(providedPassword,expectedPassword);if(adminEmail!==process.env.ADMIN_EMAIL.toLowerCase()||!passwordMatches){db.adminLoginActivity.push({id:crypto.randomUUID(),attemptedEmail,success:false,createdAt:new Date().toISOString()});if(db.adminLoginActivity.length>200)db.adminLoginActivity.shift();await save(db);return res.status(401).json({error:'Invalid admin credentials'});}db.adminLoginActivity.push({id:crypto.randomUUID(),adminEmail:process.env.ADMIN_EMAIL,success:true,createdAt:new Date().toISOString()});if(db.adminLoginActivity.length>200)db.adminLoginActivity.shift();await save(db);const user={id:'admin',role:'admin',email:process.env.ADMIN_EMAIL,sessionVersion:Number(db.adminSessionVersion||0)};res.json({token:tokenFor(user),user:{id:'admin',email:process.env.ADMIN_EMAIL,role:'admin'}});}));
 app.get('/api/admin/overview',admin,(req,res)=>res.json(adminOverview(load())));
 app.get('/api/admin/security',admin,(req,res)=>{const db=load();res.json({loginActivity:(db.adminLoginActivity||[]).slice().reverse(),auditLogs:(db.adminAuditLogs||[]).slice().reverse()});});
 app.patch('/api/admin/users/:id',admin,asyncRoute(async(req,res)=>{const db=load();const u=db.users.find(x=>x.id===req.params.id);if(!u)return res.status(404).json({error:'User not found'});const allowed=['active','warning','review_required','restricted','suspended','disabled','blocked','banned'];if(!allowed.includes(req.body.status))return res.status(400).json({error:`Status must be one of: ${allowed.join(', ')}`});if(typeof req.body.reason!=='string'||!req.body.reason.trim())return res.status(400).json({error:'A reason is required for account moderation'});const configuredEmail=String(process.env.ADMIN_EMAIL||'').trim().toLowerCase();if(u.id===req.user.id||u.role==='admin'||String(u.email||'').trim().toLowerCase()===configuredEmail)return res.status(403).json({error:'Essential administrator access cannot be moderated through user controls'});const previousStatus=u.status;const previousModerationState=u.moderationState||'';if(['warning','review_required'].includes(req.body.status)){u.status='active';u.moderationState=req.body.status;u.restrictedUntil=null;}else{u.status=req.body.status;u.moderationState='';u.restrictedUntil=req.body.status==='restricted'?new Date(Date.now()+24*60*60*1000).toISOString():null;}u.moderationReason=req.body.reason.trim().slice(0,500);u.moderatedAt=new Date().toISOString();if(previousStatus!==u.status||previousModerationState!==u.moderationState){db.moderationActions||=[];db.moderationActions.push({id:crypto.randomUUID(),type:`user_${req.body.status}`,userId:u.id,reason:u.moderationReason,adminEmail:req.user.email,createdAt:u.moderatedAt});recordAdminEvent(db,req,'user_moderation_changed',`${u.id}: ${previousStatus}/${previousModerationState||'none'} to ${u.status}/${u.moderationState||'none'}; ${u.moderationReason}`);}await save(db);const accountNotice=['warning','review_required'].includes(req.body.status)?`Your account remains active, but its moderation status is ${req.body.status.replace(/_/g,' ')}. Reason: ${u.moderationReason}`:u.status==='active'?'Your account access has been restored.':`${accountStatusMessage(u.status)} Reason: ${u.moderationReason}`;await notifyUser(u.id,'account_update',u.status==='active'?'Account access updated':'Account status updated',accountNotice,{url:'/app'});res.json({...publicUser(u),moderationState:u.moderationState,restrictedUntil:u.restrictedUntil});}));

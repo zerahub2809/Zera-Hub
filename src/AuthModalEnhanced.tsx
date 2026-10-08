@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, BriefcaseBusiness, Code2, Eye, EyeOff, X } from 'lucide-react';
 import { BrandMark } from './BrandMark';
+import { assessPassword } from './passwordPolicy';
 import './auth.css';
 
 const API = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://zera-hub-api.onrender.com' : 'http://localhost:4000');
@@ -37,6 +38,7 @@ export function AuthModalEnhanced({ type, site, onClose, onSignedIn }: Props) {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
+  const passwordAssessment = assessPassword(password);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -109,16 +111,20 @@ export function AuthModalEnhanced({ type, site, onClose, onSignedIn }: Props) {
       <form onSubmit={submit}>
         <div className="auth-fields">
           {mode !== 'signin' && mode !== 'forgot' && <>
-            <input className="modal-input" name="name" autoComplete="name" placeholder="Full name" value={name} onChange={event => setName(event.target.value)} required/>
-            <input className="modal-input" name="username" autoComplete="username" placeholder="Username" value={username} onChange={event => setUsername(event.target.value)} required/>
+            <input className="modal-input" name="name" autoComplete="name" aria-label="Full name" placeholder="Full name" value={name} onChange={event => setName(event.target.value)} required/>
+            <input className="modal-input" name="username" autoComplete="username" aria-label="Username" placeholder="Username" value={username} onChange={event => setUsername(event.target.value)} required/>
           </>}
-          <input className="modal-input" type="email" name="email" autoComplete="email" placeholder="Email" value={email} onChange={event => setEmail(event.target.value)} required/>
+          <input className="modal-input" type="email" name="email" autoComplete="email" aria-label="Email address" placeholder="Email" value={email} onChange={event => setEmail(event.target.value)} required/>
           {mode !== 'forgot' && <span className="auth-password-field">
-            <input className="modal-input auth-password-input" type={showPassword ? 'text' : 'password'} name="password" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder="Password (8+ characters)" value={password} onChange={event => setPassword(event.target.value)} minLength={mode === 'signin' ? undefined : 8} required/>
+            <input className="modal-input auth-password-input" type={showPassword ? 'text' : 'password'} name="password" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} aria-label={mode === 'signin' ? 'Password' : 'Create a password'} placeholder={mode === 'signin' ? 'Password' : 'Password (12+ characters)'} value={password} onChange={event => setPassword(event.target.value)} minLength={mode === 'signin' ? undefined : 12} required/>
             <button className="auth-password-toggle" type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} onPointerDown={event => event.preventDefault()} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button>
           </span>}
+          {mode !== 'signin' && mode !== 'forgot' && password && <div className={`password-strength password-strength-${passwordAssessment.strength.toLowerCase()}`} aria-live="polite">
+            <span>Password strength: <b>{passwordAssessment.strength}</b></span>
+            <small>{passwordAssessment.feedback}</small>
+          </div>}
         </div>
-        <button className="btn btn-primary modal-submit" type="submit" disabled={submitting}>
+        <button className="btn btn-primary modal-submit" type="submit" disabled={submitting || (mode !== 'signin' && mode !== 'forgot' && !passwordAssessment.valid)}>
           {submitting ? 'Please wait…' : mode === 'forgot' ? 'Send reset link' : mode === 'signin' ? 'Sign in' : 'Sign up'} <ArrowRight size={15}/>
         </button>
       </form>
