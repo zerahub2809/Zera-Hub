@@ -3,7 +3,7 @@ import {createRoot} from 'react-dom/client';
 import {AnimatePresence,motion,useReducedMotion} from 'framer-motion';
 import { BrowserRouter,Routes,Route,Link,NavLink,useNavigate,useLocation,Navigate } from 'react-router-dom';
 import {io, type Socket} from 'socket.io-client';
-import {ArrowRight,ArrowUpRight,BrainCircuit,BriefcaseBusiness,Code2,Compass,FileCode2,FolderKanban,Globe2,Home as HomeIcon,Layers3,Mail,Menu,MessageCircle,Network,Plus,Search,Send,ShieldCheck,Sparkles,Terminal,Users,Workflow,X,Instagram,Facebook,Twitter,Settings,LogOut,UserRound,AtSign,Lock,CheckCircle2,AlertTriangle,Upload,BarChart3,Ban,RefreshCw,Bell,ImagePlus,Check,Sun,Moon,ChevronLeft,Mic} from 'lucide-react';
+import {ArrowRight,ArrowUpRight,BrainCircuit,BriefcaseBusiness,Code2,Compass,FileCode2,FolderKanban,Globe2,Home as HomeIcon,Layers3,Mail,Menu,MessageCircle,Network,Plus,Search,Send,ShieldCheck,Sparkles,Terminal,Users,Workflow,X,Instagram,Facebook,Twitter,Settings,LogOut,UserRound,AtSign,Lock,CheckCircle2,AlertTriangle,Upload,BarChart3,Ban,RefreshCw,Bell,ImagePlus,Check,Sun,Moon,ChevronLeft,Mic,Flag,Trash2} from 'lucide-react';
 import './index.css';
 import './visual-refresh.css';
 import AdminControlCenter from './AdminControlCenter';
@@ -22,6 +22,7 @@ const social={facebook:'https://www.facebook.com/share/1BDT7JfvXm/',instagram:'h
 function setPageMetadata(title:string,description:string){document.title=`${title} · ZERA HUB`;let meta=document.querySelector<HTMLMetaElement>('meta[name="description"]');if(!meta){meta=document.createElement('meta');meta.name='description';document.head.append(meta);}meta.content=description;}
 
 type User={id:string;name:string;username:string;role:string;accountType:string;bio?:string;skills?:string[];avatar?:string;status:string;verified?:boolean;online?:boolean;lastSeenAt?:string|null};
+function isUser(value:unknown):value is User{return Boolean(value&&typeof value==='object'&&'id'in value&&typeof value.id==='string'&&'name'in value&&typeof value.name==='string'&&'username'in value&&typeof value.username==='string'&&'role'in value&&typeof value.role==='string'&&'accountType'in value&&typeof value.accountType==='string'&&'status'in value&&typeof value.status==='string')}
 type ChatMessage={id:string;fromUserId:string;toUserId:string;body:string;imageUrl?:string;voiceUrl?:string;voiceMimeType?:string;durationSeconds?:number;createdAt:string;sentAt?:string;deliveredAt?:string|null;readAt?:string|null};
 type ChatPresenceStatus='typing'|'recording'|null;
 type ChatStatusEvent={fromUserId:string;status:ChatPresenceStatus};
@@ -60,6 +61,22 @@ async function inspectAudioSignal(blob:Blob):Promise<boolean|null>{
         peak=Math.max(peak,magnitude);
         squareSum+=samples[index]*samples[index];
         sampleCount++;
+      }
+      const deleteMessage=async(message:ChatMessage)=>{
+        if(!selected||message.fromUserId!==user?.id||!window.confirm('Delete this message for everyone in this conversation?'))return;
+        try{
+          await api(`/api/messages/${encodeURIComponent(selected.id)}/${encodeURIComponent(message.id)}`,{method:'DELETE'});
+          setMessages(current=>current.filter(item=>item.id!==message.id));
+        }catch(error){setLoadError(error instanceof Error?error.message:'The message could not be deleted.')}
+      }
+      const reportSelectedUser=async()=>{
+        if(!selected)return;
+        const reason=window.prompt(`Why are you reporting ${selected.name}?`);
+        if(!reason?.trim())return;
+        try{
+          await api('/api/reports',{method:'POST',body:JSON.stringify({targetType:'user',targetId:selected.id,reason:reason.trim()})});
+          setChatNotice('Your report was submitted to the moderation team.');
+        }catch(error){setLoadError(error instanceof Error?error.message:'The report could not be submitted.')}
       }
     }
     const rms=sampleCount?Math.sqrt(squareSum/sampleCount):0;
@@ -230,31 +247,83 @@ function App(){
   const [aiContext,setAIContext]=useState('');
   const [site,setSite]=useState<any>(null);
   const [user,setUser]=useState<User|null>(null);
+  const [sessionReady,setSessionReady]=useState(()=>!localStorage.getItem('zera_token'));
+  const [sessionNotice,setSessionNotice]=useState('');
   const location=useLocation();
   const isAdminRoute=location.pathname==='/admindev2809';
   const isMessagesRoute=location.pathname==='/messages';
   const isAIPage=location.pathname==='/ai';
 
-  const syncUser=()=>{
-    const raw=localStorage.getItem('zera_user');
-    if(raw){
-      try{setUser(JSON.parse(raw));}catch{}
-    }else{
-      setUser(null);
-    }
-  };
-
   useEffect(()=>{
-    api('/api/site-config').then(setSite).catch(()=>{});
-    syncUser();
+    const refreshSite=()=>api('/api/site-config').then(setSite).catch(error=>console.error('Could not load public website configuration:',error));
+    refreshSite();
+    window.addEventListener('zera-site-config-updated',refreshSite);
+    const siteTimer=window.setInterval(refreshSite,30000);
+    let alive=true;
+    let requestVersion=0;
+    let validatedToken:string|null=null;
+    const syncUser=async()=>{
+      const token=localStorage.getItem('zera_token');
+      const currentVersion=++requestVersion;
+      if(!token){validatedToken=null;setUser(null);setSessionReady(true);return}
+      if(token!==validatedToken){setSessionReady(false);setUser(null)}
+      try{
+        const response=await fetch(`${API}/api/auth/me`,{headers:{Authorization:`Bearer ${token}`}});
+        const result:unknown=await response.json().catch(()=>({}));
+        if(!alive||currentVersion!==requestVersion||localStorage.getItem('zera_token')!==token)return;
+        if(!response.ok){
+          if([401,403,404].includes(response.status)){
+            validatedToken=null;
+            localStorage.removeItem('zera_token');
+            localStorage.removeItem('zera_user');
+            setUser(null);
+            setSessionNotice(result&&typeof result==='object'&&'error'in result&&typeof result.error==='string'?result.error:'Your session is no longer valid. Please sign in again.');
+          }else setSessionNotice('Your account session could not be verified right now. Retrying automatically.');
+          return;
+        }
+        if(!result||typeof result!=='object'||!('user'in result)||!isUser(result.user)){
+          setSessionNotice('The account service returned an invalid session response.');
+          return;
+        }
+        validatedToken=token;
+        setUser(result.user);
+        localStorage.setItem('zera_user',JSON.stringify(result.user));
+        setSessionNotice('');
+      }catch{
+        if(!alive||currentVersion!==requestVersion||localStorage.getItem('zera_token')!==token)return;
+        setSessionNotice('Your account session could not be verified right now. Retrying automatically.');
+      }finally{
+        if(alive&&currentVersion===requestVersion){
+          const currentToken=localStorage.getItem('zera_token');
+          if(!currentToken||validatedToken===currentToken)setSessionReady(true);
+        }
+      }
+    };
+    const refreshSession=()=>{void syncUser()};
+    const handleSessionRevoked=(event:Event)=>{
+      const message=(event as CustomEvent<{message?:string}>).detail?.message;
+      localStorage.removeItem('zera_token');
+      localStorage.removeItem('zera_user');
+      setUser(null);
+      setSessionReady(true);
+      setSessionNotice(message||'Your account session has ended. Please sign in again.');
+    };
+    void syncUser();
     const open=(event:Event)=>{const detail=(event as CustomEvent<{prompt?:string;context?:string}>).detail;setAIPrompt(detail?.prompt||'');setAIContext(detail?.context||'');setAI(true)};
     window.addEventListener('open-zera-ai',open);
-    window.addEventListener('zera-authenticated',syncUser);
-    window.addEventListener('storage',syncUser);
+    window.addEventListener('zera-authenticated',refreshSession);
+    window.addEventListener('storage',refreshSession);
+    window.addEventListener('zera-session-revoked',handleSessionRevoked);
+    const sessionTimer=window.setInterval(refreshSession,15000);
     return()=>{
+      alive=false;
+      window.clearInterval(sessionTimer);
+      window.clearInterval(siteTimer);
+      window.removeEventListener('zera-site-config-updated',refreshSite);
       window.removeEventListener('open-zera-ai',open);
-      window.removeEventListener('zera-authenticated',syncUser);
-      window.removeEventListener('storage',syncUser);
+      window.removeEventListener('zera-authenticated',refreshSession);
+      window.removeEventListener('storage',refreshSession);
+      window.removeEventListener('zera-session-revoked',handleSessionRevoked);
     };
   },[]);
 
@@ -266,6 +335,13 @@ function App(){
   },[user]);
 
   useEffect(()=>{
+    if(!ai)return;
+    const closeOnEscape=(event:KeyboardEvent)=>{if(event.key==='Escape')setAI(false)};
+    document.addEventListener('keydown',closeOnEscape);
+    return()=>document.removeEventListener('keydown',closeOnEscape);
+  },[ai]);
+
+  useEffect(()=>{
     if(!site?.logoUrl)return;
     const favicon=document.querySelector<HTMLLinkElement>('link[rel~="icon"]');
     if(favicon)favicon.href=site.logoUrl.startsWith('http')?site.logoUrl:`${API}${site.logoUrl}`;
@@ -274,7 +350,8 @@ function App(){
   return <>
     <PresenceHeartbeat/>
     <NotificationSoundMonitor user={user}/>
-    {!isAdminRoute&&!isMessagesRoute&&<Header site={site} user={user} onAuth={setAuth}/>}
+    {!isAdminRoute&&!isMessagesRoute&&<Header site={site} user={user} sessionReady={sessionReady} onAuth={setAuth}/>}
+    {sessionNotice&&<div className="session-expired-notice" role="alert">{sessionNotice}<button type="button" onClick={()=>setSessionNotice('')}>Dismiss</button></div>}
     <Routes>
       <Route path="/" element={<Home onAuth={setAuth} onAI={()=>setAI(true)}/>}/>
       <Route path="/about" element={<About/>}/>
@@ -303,13 +380,29 @@ function App(){
 function Brand({site,compact=false}:{site:any;compact?:boolean}){return <NavLink className="brand" to="/"><BrandMark site={site}/>{!compact&&<span><strong>{site?.brandName||'ZERA HUB'}</strong><small>{site?.tagline||'Grow Ideas. Build Tomorrow.'}</small></span>}</NavLink>}
 function LogoMark({site}:{site:any}){return <BrandMark site={site}/>}
 
-function Header({site,user,onAuth}:{site:any;user:User|null;onAuth:(x:any)=>void}){
+function Header({site,user,sessionReady,onAuth}:{site:any;user:User|null;sessionReady:boolean;onAuth:(x:any)=>void}){
   const [open,setOpen]=useState(false);
   const [unreadNotifs,setUnreadNotifs]=useState(0);
   const [unreadMsgs,setUnreadMsgs]=useState(0);
+  const headerRef=useRef<HTMLElement>(null);
   const location=useLocation();
   const token=localStorage.getItem('zera_token');
-  const currentUser=user;
+  const currentUser=sessionReady&&token?user:null;
+  const authenticated=Boolean(currentUser);
+
+  useEffect(()=>{
+    if(!open)return;
+    const closeOutside=(event:PointerEvent)=>{
+      if(!headerRef.current?.contains(event.target as Node))setOpen(false);
+    };
+    const closeOnEscape=(event:KeyboardEvent)=>{if(event.key==='Escape')setOpen(false)};
+    document.addEventListener('pointerdown',closeOutside,true);
+    document.addEventListener('keydown',closeOnEscape);
+    return()=>{
+      document.removeEventListener('pointerdown',closeOutside,true);
+      document.removeEventListener('keydown',closeOnEscape);
+    };
+  },[open]);
 
   useEffect(()=>{
     if(!token){
@@ -343,23 +436,24 @@ function Header({site,user,onAuth}:{site:any;user:User|null;onAuth:(x:any)=>void
     window.location.assign('/');
   };
 
-  const authenticatedNav = [
+  const sharedAuthenticatedNav = [
     { to: '/app', label: 'Hub', icon: HomeIcon },
     { to: '/community', label: 'Community', icon: Users },
-    { to: '/developers', label: 'Developers', icon: Code2 },
-    { to: '/developers#connection-requests', label: 'Connections', icon: Network },
     { to: '/messages', label: 'Messages', icon: MessageCircle, badge: unreadMsgs },
     { to: '/notifications', label: 'Notifications', icon: Bell, badge: unreadNotifs },
     { to: '/ai', label: 'ZERA AI', icon: BrainCircuit },
-    { to: '/jobs', label: 'Jobs', icon: BriefcaseBusiness },
   ];
+  const authenticatedNav=currentUser?.accountType==='hire'
+    ? [...sharedAuthenticatedNav,{to:'/developers',label:'Find Developers',icon:Code2},{to:'/jobs',label:'Manage Jobs',icon:BriefcaseBusiness}]
+    : [...sharedAuthenticatedNav,{to:'/developers#connection-requests',label:'Connections',icon:Network},{to:'/jobs',label:'Find Work',icon:BriefcaseBusiness}];
 
   return (
-    <header className="header">
+    <header className="header" ref={headerRef}>
+      {site?.announcement?.enabled&&typeof site.announcement.text==='string'&&site.announcement.text.trim()&&<div className="site-announcement" role="status">{site.announcement.text}</div>}
       <div className="container header-inner">
         <Brand site={site}/>
         <nav className="desktop-nav">
-          {token ? (
+          {sessionReady ? authenticated ? (
             authenticatedNav.map(({to,label,badge}) => (
               <NavLink key={to} className={({isActive})=>isActive?'active':''} to={to}>
                 {label}
@@ -372,25 +466,25 @@ function Header({site,user,onAuth}:{site:any;user:User|null;onAuth:(x:any)=>void
                 {label}
               </NavLink>
             ))
-          )}
+          ) : null}
         </nav>
         <div className="header-actions">
-          {token && currentUser ? (
+          {authenticated && currentUser ? (
             <>
-              <NavLink className="header-user-pill hide-mobile" to="/profile" title="View & Edit Profile">
+              <NavLink className="header-user-pill hide-mobile" to={currentUser.accountType==='hire'?'/app':'/profile'} title={currentUser.accountType==='hire'?'View your account':'View & Edit Profile'}>
                 <UserAvatar user={currentUser}/>
                 <span className="header-user-name">{currentUser.name}</span>
                 {currentUser.verified && <VerificationBadge/>}
               </NavLink>
               <button className="btn btn-ghost hide-mobile" onClick={signOut}>Sign out</button>
             </>
-          ) : (
+          ) : sessionReady ? (
             <>
               <button className="btn btn-ghost hide-mobile" onClick={()=>onAuth('signin')}>Sign in</button>
               <button className="btn btn-primary hide-mobile" onClick={()=>onAuth('developer')}>Join ZERA <ArrowRight size={16}/></button>
             </>
-          )}
-          <button className="icon-btn menu-btn" onClick={()=>setOpen(!open)} aria-label="Toggle navigation menu">
+          ) : null}
+          <button className="icon-btn menu-btn" onClick={()=>setOpen(!open)} aria-expanded={open} aria-label="Toggle navigation menu">
             {open ? <X size={20}/> : <Menu size={20}/>}
           </button>
         </div>
@@ -400,7 +494,7 @@ function Header({site,user,onAuth}:{site:any;user:User|null;onAuth:(x:any)=>void
         {open && (
           <motion.div className="mobile-menu" initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}}>
             <div className="container mobile-menu-inner">
-              {token && currentUser && (
+              {authenticated && currentUser && (
                 <div className="mobile-user-card">
                   <UserAvatar user={currentUser}/>
                   <div className="mobile-user-details">
@@ -411,7 +505,7 @@ function Header({site,user,onAuth}:{site:any;user:User|null;onAuth:(x:any)=>void
               )}
 
               <div className="mobile-links-list">
-                {token ? (
+                {sessionReady ? authenticated ? (
                   authenticatedNav.map(({to,label,icon:Icon,badge}) => (
                     <NavLink onClick={()=>setOpen(false)} key={to} to={to} className="mobile-nav-link">
                       <span className="mobile-nav-title"><Icon size={17}/> {label}</span>
@@ -425,20 +519,20 @@ function Header({site,user,onAuth}:{site:any;user:User|null;onAuth:(x:any)=>void
                       <ArrowUpRight size={14}/>
                     </NavLink>
                   ))
-                )}
+                ) : null}
               </div>
 
               <div className="mobile-auth">
-                {token ? (
+                {authenticated ? (
                   <>
-                    <NavLink className="btn btn-primary mobile-full-btn" to="/profile" onClick={()=>setOpen(false)}>
-                      <UserRound size={16}/> My Profile
+                    <NavLink className="btn btn-primary mobile-full-btn" to={currentUser?.accountType==='hire'?'/app':'/profile'} onClick={()=>setOpen(false)}>
+                      <UserRound size={16}/> {currentUser?.accountType==='hire'?'My Account':'My Profile'}
                     </NavLink>
                     <button className="btn btn-ghost mobile-full-btn" onClick={signOut}>
                       <LogOut size={16}/> Sign out
                     </button>
                   </>
-                ) : (
+                ) : sessionReady ? (
                   <>
                     <button className="btn btn-ghost mobile-full-btn" onClick={()=>{onAuth('signin');setOpen(false)}}>
                       Sign in
@@ -447,7 +541,7 @@ function Header({site,user,onAuth}:{site:any;user:User|null;onAuth:(x:any)=>void
                       Join ZERA <ArrowRight size={15}/>
                     </button>
                   </>
-                )}
+                ) : null}
               </div>
             </div>
           </motion.div>
@@ -502,7 +596,10 @@ function Messages({user}:{user:User|null}){
   const [notifications,setNotifications]=useState<PlatformNotification[]>([]);
   const [body,setBody]=useState('');
   const [search,setSearch]=useState('');
+  const [messageSearchOpen,setMessageSearchOpen]=useState(false);
+  const [messageSearch,setMessageSearch]=useState('');
   const [loadError,setLoadError]=useState('');
+  const [chatNotice,setChatNotice]=useState('');
   const [pushNotice,setPushNotice]=useState('');
   const [wallpaper,setWallpaper]=useState('dark-grid');
   const [wallpaperImage,setWallpaperImage]=useState('');
@@ -520,6 +617,8 @@ function Messages({user}:{user:User|null}){
   const [remoteStatus,setRemoteStatus]=useState<ChatPresenceStatus>(null);
   const imageRef=useRef<HTMLInputElement>(null);
   const wallpaperRef=useRef<HTMLInputElement>(null);
+  const settingsPanelRef=useRef<HTMLElement>(null);
+  const sidebarSettingsRef=useRef<HTMLElement>(null);
   const messagesRef=useRef<HTMLDivElement>(null);
   const messageElements=useRef<Record<string,HTMLDivElement|null>>({});
   const targetMessageId=useRef<string|null>(null);
@@ -560,6 +659,12 @@ function Messages({user}:{user:User|null}){
     });
     socket.on('message:read',(event:MessageReadEvent)=>{
       if(event.readerId===selectedRef.current?.id)setMessages(current=>current.map(item=>event.messageIds.includes(item.id)?{...item,readAt:event.readAt}:item));
+    });
+    socket.on('message:deleted',(event:{messageId:string;fromUserId:string;toUserId:string})=>{
+      if([event.fromUserId,event.toUserId].includes(user.id))setMessages(current=>current.filter(item=>item.id!==event.messageId));
+    });
+    socket.on('session:revoked',(event:{message?:string})=>{
+      window.dispatchEvent(new CustomEvent('zera-session-revoked',{detail:event}));
     });
     socket.on('chat:status',(event:ChatStatusEvent)=>{
       if(event.fromUserId===selectedRef.current?.id)setRemoteStatus(event.status);
@@ -619,11 +724,30 @@ function Messages({user}:{user:User|null}){
   useEffect(()=>{
     setRemoteStatus(null);
     setBody('');
+    setMessageSearch('');
+    setMessageSearchOpen(false);
     setImage(null);
     setVoiceDraft(null);
     setVoiceDraftDuration(0);
     setRecordingError('');
   },[selected?.id]);
+  useEffect(()=>{
+    if(!settingsOpen&&!messageSearchOpen)return;
+    const closeOutside=(event:PointerEvent)=>{
+      const target=event.target;
+      if(!(target instanceof Element))return;
+      if(settingsPanelRef.current?.contains(target)||sidebarSettingsRef.current?.contains(target)||target.closest('.chat-settings-button')||target.closest('.message-search'))return;
+      if(settingsOpen)setSettingsOpen(false);
+      if(messageSearchOpen)setMessageSearchOpen(false);
+    };
+    const closeOnEscape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setSettingsOpen(false);setMessageSearchOpen(false)}};
+    document.addEventListener('pointerdown',closeOutside,true);
+    document.addEventListener('keydown',closeOnEscape);
+    return()=>{
+      document.removeEventListener('pointerdown',closeOutside,true);
+      document.removeEventListener('keydown',closeOnEscape);
+    };
+  },[settingsOpen,messageSearchOpen]);
   useEffect(()=>{if(!user)return;const refresh=()=>api('/api/notifications').then((items:PlatformNotification[])=>setNotifications(items)).catch((error:Error)=>setLoadError(error.message));const timer=window.setInterval(refresh,12000);return()=>window.clearInterval(timer)},[user?.id]);
   useEffect(()=>{if(!image){setImagePreview('');return}const url=URL.createObjectURL(image);setImagePreview(url);return()=>URL.revokeObjectURL(url)},[image]);
   useEffect(()=>{if(!voiceDraft){setVoiceDraftUrl('');return}const url=URL.createObjectURL(voiceDraft);setVoiceDraftUrl(url);return()=>URL.revokeObjectURL(url)},[voiceDraft]);
@@ -826,17 +950,34 @@ function Messages({user}:{user:User|null}){
       setSending(false);
     }
   }
+  const deleteMessage=async(message:ChatMessage)=>{
+    if(!selected||message.fromUserId!==user?.id||!window.confirm('Delete this message for everyone in this conversation?'))return;
+    try{
+      await api(`/api/messages/${encodeURIComponent(selected.id)}/${encodeURIComponent(message.id)}`,{method:'DELETE'});
+      setMessages(current=>current.filter(item=>item.id!==message.id));
+    }catch(error){setLoadError(error instanceof Error?error.message:'The message could not be deleted.')}
+  }
+  const reportSelectedUser=async()=>{
+    if(!selected)return;
+    const reason=window.prompt(`Why are you reporting ${selected.name}?`);
+    if(!reason?.trim())return;
+    try{
+      await api('/api/reports',{method:'POST',body:JSON.stringify({targetType:'user',targetId:selected.id,reason:reason.trim()})});
+      setChatNotice('Your report was submitted to the moderation team.');
+    }catch(error){setLoadError(error instanceof Error?error.message:'The report could not be submitted.')}
+  }
   const saveWallpaper=async(value:string)=>{setWallpaper(value);try{await api('/api/platform/profile/preferences',{method:'PATCH',body:JSON.stringify({chatWallpaper:value})})}catch(error){setLoadError(error instanceof Error?error.message:'Wallpaper preference could not be saved.')}}
   const uploadWallpaper=async(file:File)=>{if(!['image/jpeg','image/png','image/gif','image/webp','image/avif'].includes(file.type)||file.size>2*1024*1024){setLoadError('Choose a supported wallpaper image smaller than 2 MB.');return}try{const form=new FormData();form.append('image',file);const result=await apiUpload<{chatWallpaper:string;chatWallpaperImage:string}>('/api/profile/chat-wallpaper',form);setWallpaper(result.chatWallpaper);setWallpaperImage(result.chatWallpaperImage);setLoadError('')}catch(error){setLoadError(error instanceof Error?error.message:'Wallpaper upload failed.')}}
   const changeSound=async(enabled:boolean)=>{setSoundOn(enabled);localStorage.setItem('zera_notification_sound',enabled?'on':'off');window.dispatchEvent(new Event('zera-notification-sound-change'));try{await api('/api/platform/profile/preferences',{method:'PATCH',body:JSON.stringify({notificationSound:enabled})})}catch(error){console.error('Could not save notification sound preference:',error)}}
   const markNotificationsRead=async()=>{try{await api('/api/notifications/read',{method:'PATCH',body:'{}'});setNotifications(items=>items.map(item=>({...item,readAt:item.readAt||new Date().toISOString()})))}catch(error){setLoadError(error instanceof Error?error.message:'Notifications could not be marked read.')}}
   const visibleUsers=users.filter(account=>`${account.name} ${account.username}`.toLowerCase().includes(search.toLowerCase()));
+  const visibleMessages=messages.filter(message=>!messageSearch.trim()||(message.body||'').toLowerCase().includes(messageSearch.trim().toLowerCase()));
   const unreadFor=(accountId:string)=>notifications.filter(item=>!item.readAt&&item.type==='message'&&item.data?.fromUserId===accountId).length;
   const wallpaperStyle=wallpaper==='custom'&&wallpaperImage?{backgroundImage:`linear-gradient(var(--chat-background-overlay),var(--chat-background-overlay)),url("${wallpaperImage.startsWith('http')?wallpaperImage:`${API}${wallpaperImage}`}")`}:undefined;
   if(!user)return <main className="chat-signin"><MessageCircle size={38}/><h1>Sign in to your conversations</h1><p>Your private chats are available after signing in and connecting with another member.</p><NavLink className="btn btn-primary" to="/">Back to ZERA HUB</NavLink></main>;
   return <><main className={`chat-fullscreen wallpaper-${wallpaper}${selected?' mobile-chat-open':''}`}>
     <header className="chat-topbar"><NavLink className="chat-brand" to="/app"><BrandMark site={null}/><b>ZERA HUB <span>MESSAGES</span></b></NavLink><div className="chat-top-actions"><NavLink to="/notifications" className="chat-top-link"><Bell size={17}/> Notifications {notifications.some(item=>!item.readAt)&&<i/>}</NavLink><NavLink to="/app" className="chat-top-link"><ChevronLeft size={17}/> Hub</NavLink></div></header>
-    <div className="chat-workspace"><aside className="chat-conversations"><div className="chat-list-heading"><div><span>YOUR NETWORK</span><h1>Messages</h1></div><button className="chat-settings-button" onClick={()=>setSettingsOpen(value=>!value)} aria-expanded={settingsOpen} title="Chat settings"><Settings size={18}/></button></div><label className="conversation-search"><Search size={16}/><input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search conversations"/></label>{settingsOpen&&<section className="chat-settings chat-settings-sidebar"><h2>Chat settings</h2><p>Choose a wallpaper, adjust your sounds, or enable supported device notifications.</p></section>}<div className="conversation-list">{visibleUsers.map(account=>{const count=unreadFor(account.id);return <button className={`conversation-item ${selected?.id===account.id?'selected':''}`} onClick={()=>{setSelected(account);setSettingsOpen(false)}} key={account.id}><UserAvatar user={account}/><span className="conversation-copy"><b>{account.name}{account.verified&&<VerificationBadge/>}</b><small>{formatLastSeen(account)}</small></span>{count>0&&<i className="conversation-unread">{count}</i>}</button>})}{!users.length&&<div className="chat-list-empty"><Users size={22}/><b>No conversations yet</b><span>Only accepted connections appear here.</span><NavLink to="/developers">Discover developers</NavLink></div>}{users.length>0&&!visibleUsers.length&&<p className="chat-list-empty">No conversations match that search.</p>}</div></aside>
+    <div className="chat-workspace"><aside className="chat-conversations"><div className="chat-list-heading"><div><span>YOUR NETWORK</span><h1>Messages</h1></div><button className="chat-settings-button" onClick={()=>setSettingsOpen(value=>!value)} aria-expanded={settingsOpen} title="Chat settings"><Settings size={18}/></button></div><label className="conversation-search"><Search size={16}/><input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search conversations"/></label>    {settingsOpen&&<section ref={sidebarSettingsRef} className="chat-settings chat-settings-sidebar"><h2>Chat settings</h2><p>Choose a wallpaper, adjust your sounds, or enable supported device notifications.</p></section>}<div className="conversation-list">{visibleUsers.map(account=>{const count=unreadFor(account.id);return <button className={`conversation-item ${selected?.id===account.id?'selected':''}`} onClick={()=>{setSelected(account);setSettingsOpen(false)}} key={account.id}><UserAvatar user={account}/><span className="conversation-copy"><b>{account.name}{account.verified&&<VerificationBadge/>}</b><small>{formatLastSeen(account)}</small></span>{count>0&&<i className="conversation-unread">{count}</i>}</button>})}{!users.length&&<div className="chat-list-empty"><Users size={22}/><b>No conversations yet</b><span>Only accepted connections appear here.</span><NavLink to="/developers">Discover developers</NavLink></div>}{users.length>0&&!visibleUsers.length&&<p className="chat-list-empty">No conversations match that search.</p>}</div></aside>
       <section className="chat-conversation" style={wallpaperStyle}>
         {selected?<>
           <header className="active-chat-header">
@@ -847,20 +988,24 @@ function Messages({user}:{user:User|null}){
               <span><i className={`platform-presence-dot ${selected.online?'online':''}`}/>{formatLastSeen(selected)}</span>
             </div>
             <Link to={`/developers/${encodeURIComponent(selected.id)}`} className="view-chat-profile">View profile <ArrowUpRight size={15}/></Link>
-            <button className="chat-settings-button active-settings" onClick={()=>setSettingsOpen(value=>!value)} title="Chat settings"><Settings size={18}/></button>
+            <button className="chat-settings-button active-settings" onClick={()=>{setSettingsOpen(false);setMessageSearchOpen(value=>!value)}} aria-expanded={messageSearchOpen} title="Search messages"><Search size={18}/></button>
+            <button className="chat-settings-button active-settings" onClick={()=>{setMessageSearchOpen(false);setSettingsOpen(value=>!value)}} aria-expanded={settingsOpen} title="Chat settings"><Settings size={18}/></button>
           </header>
+          {messageSearchOpen&&<label className="conversation-search message-search"><Search size={16}/><input autoFocus value={messageSearch} onChange={event=>setMessageSearch(event.target.value)} placeholder="Search messages in this conversation"/></label>}
           {remoteStatus&&<div className="chat-live-status" role="status" aria-live="polite">{remoteStatus==='recording'?'Recording voice…':'Typing…'}</div>}
           {loadError&&<p className="chat-inline-error" role="alert">{loadError}</p>}
+          {chatNotice&&<p className="chat-inline-notice" role="status">{chatNotice}</p>}
           <div className="chat-message-history" ref={messagesRef}>
-            {messages.length?messages.map(message=><div ref={element=>{messageElements.current[message.id]=element}} className={`chat-message-row ${message.fromUserId===user.id?'outgoing':''}`} key={message.id}>
+            {visibleMessages.length?visibleMessages.map(message=><div ref={element=>{messageElements.current[message.id]=element}} className={`chat-message-row ${message.fromUserId===user.id?'outgoing':''}`} key={message.id}>
               {message.fromUserId!==user.id&&<UserAvatar user={selected} className="message-avatar"/>}
               <article className="chat-message-bubble">
                 {message.body&&<p>{message.body}</p>}
                 {message.imageUrl&&<img className="chat-image" src={message.imageUrl.startsWith('http')?message.imageUrl:`${API}${message.imageUrl}`} alt="Shared in chat"/>}
                 {message.voiceUrl&&<VoiceMessage url={message.voiceUrl} mimeType={message.voiceMimeType} durationSeconds={message.durationSeconds}/>}
+                {message.fromUserId===user.id&&<div className="chat-message-actions"><button type="button" onClick={()=>deleteMessage(message)} aria-label="Delete message" title="Delete message"><Trash2 size={14}/></button></div>}
                 <footer><time>{new Date(message.createdAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time>{message.fromUserId===user.id&&<span>{message.readAt?'Seen':message.deliveredAt?'Delivered':'Sent'}</span>}</footer>
               </article>
-            </div>):<div className="chat-empty"><MessageCircle size={34}/><h3>Start the conversation</h3><p>Say hello to {selected.name} and start building something together.</p></div>}
+            </div>):<div className="chat-empty"><MessageCircle size={34}/><h3>{messageSearch?'No matching messages':'Start the conversation'}</h3><p>{messageSearch?'Try another search term.':`Say hello to ${selected.name} and start building something together.`}</p></div>}
           </div>
           {imagePreview&&<div className="chat-image-preview"><img src={imagePreview} alt="Selected image preview"/><button onClick={()=>{pendingSendKeyRef.current=null;setImage(null)}} aria-label="Remove image"><X size={15}/></button></div>}
           {recording&&<div className="chat-recording-controls" role="status"><span><i/>Recording voice… {formatDuration(recordingSeconds)}</span><button type="button" onClick={cancelRecording}>Cancel</button><button type="button" onClick={stopRecording}>Stop</button></div>}
@@ -875,7 +1020,7 @@ function Messages({user}:{user:User|null}){
           </form>
         </>:<div className="chat-welcome"><MessageCircle size={42}/><h2>Your conversations, in one place.</h2><p>Select an accepted connection to open a private conversation. Chat is available only after a request is accepted.</p>{!users.length&&<NavLink to="/developers" className="btn btn-primary">Discover developers <ArrowUpRight size={15}/></NavLink>}</div>}
       </section></div>
-  </main>{settingsOpen&&<section className="chat-settings-overlay"><header><h2>Chat settings</h2><button onClick={()=>setSettingsOpen(false)} aria-label="Close chat settings"><X size={16}/></button></header><label>Conversation background<select value={wallpaper} onChange={event=>void saveWallpaper(event.target.value)}><option value="dark-grid">Dark grid</option><option value="deep-space">Deep space</option><option value="circuit">Circuit board</option><option value="aurora">Aurora</option><option value="light-grid">Light grid</option><option value="light-circuit">Light circuit</option><option value="solid-white">White</option><option value="solid-midnight">Solid midnight</option><option value="solid-slate">Solid slate</option><option value="gradient-violet">Violet gradient</option><option value="gradient-ocean">Ocean gradient</option><option value="custom">Custom image</option></select></label><button className="chat-upload-wallpaper" onClick={()=>wallpaperRef.current?.click()}><Upload size={14}/> Upload custom background</button><input ref={wallpaperRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" hidden onChange={event=>{const file=event.target.files?.[0];if(file)void uploadWallpaper(file);event.target.value=''}}/><label className="chat-sound-setting"><input type="checkbox" checked={soundOn} onChange={event=>void changeSound(event.target.checked)}/> Notification sound</label><button className="chat-push-setting" onClick={()=>void enableNotifications()}><Bell size={14}/> Enable device notifications</button>{pushNotice&&<p role="status">{pushNotice}</p>}{loadError&&<p className="settings-error" role="alert">{loadError}</p>}{selected&&<Link to={`/developers/${encodeURIComponent(selected.id)}`} className="chat-push-setting">View profile <ArrowUpRight size={14}/></Link>}</section>}</>
+  </main>  {settingsOpen&&<section ref={settingsPanelRef} className="chat-settings-overlay"><header><h2>Chat settings</h2><button onClick={()=>setSettingsOpen(false)} aria-label="Close chat settings"><X size={16}/></button></header><label>Conversation background<select value={wallpaper} onChange={event=>void saveWallpaper(event.target.value)}><option value="dark-grid">Dark grid</option><option value="deep-space">Deep space</option><option value="circuit">Circuit board</option><option value="aurora">Aurora</option><option value="light-grid">Light grid</option><option value="light-circuit">Light circuit</option><option value="solid-white">White</option><option value="solid-midnight">Solid midnight</option><option value="solid-slate">Solid slate</option><option value="gradient-violet">Violet gradient</option><option value="gradient-ocean">Ocean gradient</option><option value="custom">Custom image</option></select></label><button className="chat-upload-wallpaper" onClick={()=>wallpaperRef.current?.click()}><Upload size={14}/> Upload custom background</button><input ref={wallpaperRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" hidden onChange={event=>{const file=event.target.files?.[0];if(file)void uploadWallpaper(file);event.target.value=''}}/><label className="chat-sound-setting"><input type="checkbox" checked={soundOn} onChange={event=>void changeSound(event.target.checked)}/> Notification sound</label><button className="chat-push-setting" onClick={()=>void enableNotifications()}><Bell size={14}/> Enable device notifications</button>{pushNotice&&<p role="status">{pushNotice}</p>}{chatNotice&&<p role="status">{chatNotice}</p>}{loadError&&<p className="settings-error" role="alert">{loadError}</p>}{selected&&<><Link to={`/developers/${encodeURIComponent(selected.id)}`} className="chat-push-setting">View profile <ArrowUpRight size={14}/></Link><button type="button" className="chat-push-setting" onClick={()=>void reportSelectedUser()}><Flag size={14}/> Report user</button></>}</section>}</>
 }
 function LegacyMessages({user}:{user:User|null}){
   const [users,setUsers]=useState<User[]>([]);

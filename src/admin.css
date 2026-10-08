@@ -1,3 +1,14 @@
+.admin-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+}
+
+.admin-toggle-label input[type="checkbox"] {
+  width: auto;
+  min-width: 1rem;
+}
+
 body.admin-page .header,
 body.admin-page .footer {
   display: none;

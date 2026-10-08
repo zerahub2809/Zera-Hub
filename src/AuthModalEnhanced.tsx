@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, BriefcaseBusiness, Code2, Eye, EyeOff, X } from 'lucide-react';
 import { BrandMark } from './BrandMark';
@@ -37,6 +37,14 @@ export function AuthModalEnhanced({ type, site, onClose, onSignedIn }: Props) {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

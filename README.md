@@ -23,7 +23,7 @@ Open `http://localhost:5173`.
 
 ## Environment
 Copy `.env.example` to `.env` and set:
-- `JWT_SECRET` to a long random secret.
+- `JWT_SECRET` to a private random value of at least 32 characters. The backend refuses to start with the example placeholder or an unset/short secret; the former built-in fallback is intentionally no longer accepted.
 - `ADMIN_PASSWORD` to a strong private admin password.
 - `GMAIL_OAUTH_CLIENT_ID`, `GMAIL_OAUTH_CLIENT_SECRET`, `GMAIL_OAUTH_REDIRECT_URI`, and `GMAIL_OAUTH_SETUP_KEY` on the backend for Gmail API password-reset email.
 - `CLIENT_URL` to the public frontend origin so reset links open the deployed password-reset page.
@@ -55,14 +55,14 @@ Public discovery and detail endpoints:
 Authenticated endpoints include `GET`/`PATCH /api/platform/profile`, `GET /api/platform/connections`, `POST`/`DELETE /api/platform/connections/:userId`, `POST /api/platform/jobs`, `GET /api/platform/jobs/mine`, `PATCH /api/platform/jobs/:id`, and `POST /api/platform/jobs/:id/applications`. Applicants can retrieve their own applications from `GET /api/platform/applications/mine`. Only the job owner can use `GET /api/platform/jobs/:id/applications` and `PATCH /api/platform/applications/:id` to review applicants and change status. Salary ranges use an optional three-letter currency code and are not tied to a particular country.
 
 ## Messaging
-Private conversations support text, image, and voice messages. Voice clips are limited to 180 seconds and 12 MB. Typing/recording presence and message-seen updates use authenticated Socket.IO events; messages are only marked seen when the recipient has the conversation open in a visible tab.
+Private conversations support text, image, and voice messages. Voice clips are limited to 180 seconds and 12 MB. Typing/recording presence, message-seen updates, and message-deletion broadcasts use authenticated Socket.IO events; message deletion itself is persisted through an authenticated API route. Account-session revocation is checked against live account status. Users can search the loaded conversation, report the other participant, and delete only their own messages; the backend enforces message ownership. Messages are only marked seen when the recipient has the conversation open in a visible tab. The existing realtime service does not have configured ICE/TURN relay infrastructure, so audio/video call controls are not presented as if calling were available.
 
 ## Admin
 Private route: `/admindev2809`
 
-The route is not linked in the public navigation. Admin credentials are read server-side from `.env` and should be protected with MFA/strong operational controls before production.
+The route is not linked in the public navigation. Admin credentials are read server-side from `.env` and should be protected with MFA/strong operational controls before production. Admin tokens are signed only with the configured private `JWT_SECRET`; all dashboard APIs independently enforce the configured administrator email and role.
 
-Admin APIs require a server-verified administrator token. The control center exposes users, developer/hirer accounts, profile projects, jobs, applications, community posts/comments, reports, platform statistics, login activity and audit logs. User and content moderation changes require a reason and are persisted as moderation/audit records. A restricted account is temporarily blocked for 24 hours; repeated medium/high-risk community content can also trigger that temporary restriction after three signals in a rolling day. Warnings and review-required states do not disable account access. Reports can be created for profiles, posts, comments/replies and jobs through authenticated `POST /api/reports`; report submissions are rate-limited and duplicate open reports are rejected.
+Admin APIs require a server-verified administrator token. The control center exposes users, developer/hirer accounts, profile projects, jobs, applications, community posts/comments, reports, platform statistics, login activity and audit logs. Admins can also publish or withdraw a plain-text platform announcement from Website configuration. User and content moderation changes require a reason and destructive actions require confirmation; changes are persisted as moderation/audit records. Active, restricted, suspended, disabled, blocked, and banned states are enforced by protected APIs, checked against live sessions, and surfaced to affected users. A restricted account is temporarily blocked for 24 hours; repeated medium/high-risk community content can also trigger that temporary restriction after three signals in a rolling day. Warnings and review-required states do not disable account access. Reports can be created for profiles, posts, comments/replies and jobs through authenticated `POST /api/reports`; report submissions are rate-limited and duplicate open reports are rejected.
 
 For production, configure the backend's `CLIENT_URL` to the frontend origin. The backend also explicitly permits `https://zera-hub0.vercel.app` and the local Vite origin so the deployed control center can send its existing admin bearer token across origins.
 

@@ -64,6 +64,7 @@ type AdminData = {
     logoUrl: string;
     contactEmail: string;
     socials: Record<string, string>;
+    announcement: { enabled: boolean; text: string };
   };
   stats: {
     users: number;
@@ -174,6 +175,17 @@ export default function AdminControlCenter() {
   }, []);
 
   useEffect(() => {
+    if (!selectedUser && !sidebarOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (selectedUser) setSelectedUser(null);
+      else setSidebarOpen(false);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [selectedUser, sidebarOpen]);
+
+  useEffect(() => {
     if (!token) {
       setLoading(false);
       return;
@@ -262,6 +274,8 @@ export default function AdminControlCenter() {
 
   const updateUserStatus = async (user: AdminUser, status: string) => {
     if (!token) return;
+    if (['restricted','suspended','disabled','blocked','banned'].includes(status) &&
+        !window.confirm(`Apply ${status} to ${user.name}? This will immediately restrict the account.`)) return;
     const reason = window.prompt(`Enter the reason to set this account to ${status}.`);
     if (!reason?.trim()) return;
     setBusy(true);
@@ -298,6 +312,8 @@ export default function AdminControlCenter() {
 
   const updateRecord = async (type: string, id: string, status: string) => {
     if (!token) return;
+    if (['removed','hidden'].includes(status) &&
+        !window.confirm(`Set this ${type} to ${status}? This may make the content unavailable to users.`)) return;
     const reason = window.prompt(`Enter the reason for setting this ${type} to ${status}.`);
     if (!reason?.trim()) return;
     setBusy(true);
@@ -342,6 +358,7 @@ export default function AdminControlCenter() {
         body: JSON.stringify(data.siteConfig),
       });
       await loadOverview(token);
+      window.dispatchEvent(new Event('zera-site-config-updated'));
       setNotice('Website settings saved.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save website settings.');
@@ -500,6 +517,9 @@ export default function AdminControlCenter() {
         <label className="admin-upload-button"><input type="file" accept="image/*" onChange={uploadLogo} />Upload logo</label>
       </div>
       <label>Contact email<input type="email" value={data.siteConfig.contactEmail || ''} onChange={(event) => editSiteConfig('contactEmail', event.target.value)} /></label>
+      <h3>Platform announcement</h3>
+      <label className="admin-toggle-label"><input type="checkbox" checked={data.siteConfig.announcement?.enabled || false} onChange={(event) => setData({ ...data, siteConfig: { ...data.siteConfig, announcement: { ...data.siteConfig.announcement, enabled: event.target.checked } } })} /> Show public announcement</label>
+      <label>Announcement text<textarea maxLength={500} value={data.siteConfig.announcement?.text || ''} onChange={(event) => setData({ ...data, siteConfig: { ...data.siteConfig, announcement: { ...data.siteConfig.announcement, text: event.target.value } } })} /></label>
       <h3>Social links</h3>
       {Object.entries(data.siteConfig.socials || {}).map(([key, value]) => <label key={key}>{key}<input value={value} onChange={(event) => setData({ ...data, siteConfig: { ...data.siteConfig, socials: { ...data.siteConfig.socials, [key]: event.target.value } } })} /></label>)}
       <div className="admin-form-actions"><button className="admin-primary-button" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save website settings'}<CheckCircle2 size={16} /></button>{notice && <span className="admin-success">{notice}</span>}</div>
@@ -588,7 +608,7 @@ export default function AdminControlCenter() {
           <footer className="admin-footer"><span>© {new Date().getFullYear()} ZERA HUB</span><span>Secure operations console <BarChart3 size={13} /></span></footer>
         </div>
       </div>
-      {selectedUser && <div className="admin-modal-backdrop" onClick={() => setSelectedUser(null)}><section className="admin-user-modal" onClick={(event) => event.stopPropagation()}><button className="admin-modal-close" onClick={() => setSelectedUser(null)} aria-label="Close details"><X size={18} /></button><span className="admin-eyebrow">MEMBER PROFILE</span><div className="admin-profile-large">{selectedUser.avatar ? <img loading="lazy" src={selectedUser.avatar.startsWith('http') ? selectedUser.avatar : `${API}${selectedUser.avatar}`} alt="" /> : (selectedUser.name || 'Z').slice(0, 1).toUpperCase()}</div><h2>{selectedUser.name || 'Unnamed member'}</h2><p>@{selectedUser.username} · {selectedUser.accountType === 'hire' ? 'Hirer' : 'Developer'}</p><div className="admin-profile-details"><span><b>Account status</b><i className={`admin-status ${selectedUser.status}`}>{selectedUser.status}</i></span><span><b>Moderation state</b><i className={`admin-status ${selectedUser.moderationState || 'active'}`}>{(selectedUser.moderationState || 'none').replace(/_/g,' ')}</i></span><span><b>Verification</b><i>{selectedUser.verified ? 'Verified' : 'Not verified'}</i></span><span><b>Joined</b><i>{formatDate(selectedUser.createdAt)}</i></span></div>{selectedUser.bio && <p className="admin-profile-bio">{selectedUser.bio}</p>}{selectedUser.skills?.length ? <div className="admin-skill-list">{selectedUser.skills.map((skill) => <span key={skill}>{skill}</span>)}</div> : <p className="admin-muted">No skills listed.</p>}<label>Moderation status<select value={userModerationStatus} disabled={busy} onChange={(event) => setUserModerationStatus(event.target.value)}>{['active','warning','review_required','restricted','suspended','disabled'].map((status) => <option key={status} value={status}>{status.replace(/_/g,' ')}</option>)}</select></label><button className={`admin-primary-button ${['restricted','suspended','disabled'].includes(userModerationStatus) ? 'danger' : ''}`} disabled={busy || (userModerationStatus === (selectedUser.moderationState || selectedUser.status))} onClick={() => updateUserStatus(selectedUser,userModerationStatus)}><ShieldCheck size={16} /> Apply moderation status</button></section></div>}
+      {selectedUser && <div className="admin-modal-backdrop" onClick={() => setSelectedUser(null)}><section className="admin-user-modal" onClick={(event) => event.stopPropagation()}><button className="admin-modal-close" onClick={() => setSelectedUser(null)} aria-label="Close details"><X size={18} /></button><span className="admin-eyebrow">MEMBER PROFILE</span><div className="admin-profile-large">{selectedUser.avatar ? <img loading="lazy" src={selectedUser.avatar.startsWith('http') ? selectedUser.avatar : `${API}${selectedUser.avatar}`} alt="" /> : (selectedUser.name || 'Z').slice(0, 1).toUpperCase()}</div><h2>{selectedUser.name || 'Unnamed member'}</h2><p>@{selectedUser.username} · {selectedUser.accountType === 'hire' ? 'Hirer' : 'Developer'}</p><div className="admin-profile-details"><span><b>Account status</b><i className={`admin-status ${selectedUser.status}`}>{selectedUser.status}</i></span><span><b>Moderation state</b><i className={`admin-status ${selectedUser.moderationState || 'active'}`}>{(selectedUser.moderationState || 'none').replace(/_/g,' ')}</i></span><span><b>Verification</b><i>{selectedUser.verified ? 'Verified' : 'Not verified'}</i></span><span><b>Joined</b><i>{formatDate(selectedUser.createdAt)}</i></span></div>{selectedUser.bio && <p className="admin-profile-bio">{selectedUser.bio}</p>}{selectedUser.skills?.length ? <div className="admin-skill-list">{selectedUser.skills.map((skill) => <span key={skill}>{skill}</span>)}</div> : <p className="admin-muted">No skills listed.</p>}      <label>Moderation status<select value={userModerationStatus} disabled={busy} onChange={(event) => setUserModerationStatus(event.target.value)}>{['active','warning','review_required','restricted','suspended','disabled','blocked','banned'].map((status) => <option key={status} value={status}>{status.replace(/_/g,' ')}</option>)}</select></label><button className={`admin-primary-button ${['restricted','suspended','disabled','blocked','banned'].includes(userModerationStatus) ? 'danger' : ''}`} disabled={busy || (userModerationStatus === (selectedUser.moderationState || selectedUser.status))} onClick={() => updateUserStatus(selectedUser,userModerationStatus)}><ShieldCheck size={16} /> Apply moderation status</button></section></div>}
     </main>
   );
 }

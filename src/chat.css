@@ -6,3 +6,81 @@
 html[data-theme="light"] .chat-message-bubble footer time {
   color: #586579;
 }
+
+.site-announcement {
+  padding: .6rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  background: rgba(113, 85, 221, .16);
+  color: inherit;
+  text-align: center;
+  font-size: .9rem;
+}
+
+.session-expired-notice {
+  position: fixed;
+  z-index: 10000;
+  top: 1rem;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  max-width: min(38rem, calc(100vw - 2rem));
+  padding: .8rem 1rem;
+  border: 1px solid rgba(255, 120, 120, .4);
+  border-radius: 12px;
+  background: #21191b;
+  color: #fff;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .3);
+  transform: translateX(-50%);
+}
+
+.session-expired-notice button {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.chat-message-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: .2rem;
+}
+
+.chat-message-actions button {
+  display: inline-grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: .72;
+}
+
+.chat-message-actions button:hover,
+.chat-message-actions button:focus-visible {
+  background: rgba(255, 255, 255, .12);
+  opacity: 1;
+}
+
+.message-search {
+  margin: .5rem 1rem;
+}
+
+.chat-inline-notice {
+  padding: .4rem 1rem;
+  color: #71d4a4;
+}
+
+@media (max-width: 520px) {
+  .session-expired-notice {
+    align-items: flex-start;
+    gap: .5rem;
+    font-size: .9rem;
+  }
+}
